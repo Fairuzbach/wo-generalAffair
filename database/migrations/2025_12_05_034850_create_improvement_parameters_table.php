@@ -11,10 +11,10 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('improvement_statuses', function (Blueprint $table) {
+        Schema::create('improvement_parameters', function (Blueprint $table) {
             $table->id();
-            $table->string('status');
-            $table->string('color');
+            $table->string('code')->unique(); // M, MTR, T
+            $table->string('name');           // Machines, Materials, Tools
             $table->timestamps();
         });
     }
@@ -24,6 +24,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('improvement_statuses');
+        Schema::dropIfExists('improvement_parameters');
     }
 };

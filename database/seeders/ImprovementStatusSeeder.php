@@ -2,23 +2,44 @@
 
 namespace Database\Seeders;
 
+use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
-// Sesuaikan namespace ini dengan lokasi Model Anda
-use App\Models\Engineering\ImprovementStatus;
+use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
 class ImprovementStatusSeeder extends Seeder
 {
-    public function run()
+    /**
+     * Run the database seeds.
+     */
+    public function run(): void
     {
-        $statuses = [
-            'Pending',
-            'In Progress',
-            'Completed',
-            'Cancelled'
+        //
+        $statusses = [
+            [
+                'status' => 'Pending',
+                'color' => 'secondary'
+            ],
+            [
+                'status' => 'In Progress',
+                'color' => 'primary',
+            ],
+            [
+                'status' => 'Completed',
+                'color' => 'success',
+            ],
+            [
+                'status' => 'Cancelled',
+                'color' => 'danger',
+            ]
         ];
-
-        foreach ($statuses as $status) {
-            ImprovementStatus::firstOrCreate(['status' => $status]);
+        foreach ($statusses as $status) {
+            DB::table('improvement_statuses')->insert([
+                'status' => $status['status'],
+                'color' => $status['color'],
+                'created_at' => Carbon::now(),
+                'updated_at' => Carbon::now()
+            ]);
         }
     }
 }

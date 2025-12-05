@@ -28,10 +28,10 @@ Route::middleware('auth')->group(function () {
 
     // --- 3. ROUTE CRUD (STORE & UPDATE) ---
     // PENTING: Tambahkan ini karena form di Blade Anda memanggil 'work-orders.store'
-    Route::post('/work-orders', [WorkOrderEngineeringController::class, 'store'])
+    Route::post('engineering/work-orders', [WorkOrderEngineeringController::class, 'store'])
         ->name('work-orders.store');
 
-    Route::put('/work-orders/{workOrder}', [WorkOrderEngineeringController::class, 'update'])
+    Route::put('engineering/work-orders/{workOrder}', [WorkOrderEngineeringController::class, 'update'])
         ->name('work-orders.update');
 });
 

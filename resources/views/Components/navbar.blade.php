@@ -29,15 +29,12 @@
             <div class="hidden w-full md:block md:w-auto" id="navbar-default">
                 <ul
                     class="font-medium flex flex-col p-4 md:p-0 mt-4 border border-slate-100 rounded-lg md:flex-row md:space-x-8 rtl:space-x-reverse md:mt-0 md:border-0 md:items-center">
-                    <li><a href="{{ url('/') }}"
-                            class="block py-2 px-3 text-white bg-indigo-700 rounded md:bg-transparent md:text-indigo-700 md:p-0">Home</a>
-                    </li>
 
                     {{-- AUTH BUTTONS --}}
                     <li class="md:ml-4 flex items-center gap-2">
                         @if (Route::has('login'))
                             @auth
-                                <a href="{{ url('/dashboard') }}"
+                                <a href="{{ url('/') }}"
                                     class="text-white bg-indigo-600 hover:bg-indigo-700 focus:ring-4 focus:ring-indigo-300 font-medium rounded-full text-sm px-5 py-2.5 shadow-md">Dashboard</a>
                             @else
                                 <a href="{{ route('login') }}"

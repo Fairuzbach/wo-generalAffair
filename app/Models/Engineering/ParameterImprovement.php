@@ -9,10 +9,6 @@ class ParameterImprovement extends Model
 {
     use HasFactory;
 
-    protected $table = 'parameter_improvements';
-
-    protected $fillable = [
-        'code',
-        'name'
-    ];
+    protected $table = 'improvement_parameters';
+    protected $fillable = ['code', 'name'];
 }
