@@ -171,7 +171,7 @@ class GeneralAffairController extends Controller
         }
 
         // B. DATA MODE PHASE (Group by Department)
-        // Kita hitung jumlah tiket per departemen
+
         $groupedDept = $workOrders->groupBy('department');
         $phaseLabels = [];
         $phaseData   = [];
@@ -181,7 +181,7 @@ class GeneralAffairController extends Controller
             $phaseData[]   = $tickets->count(); // Jumlah tiket sebagai 'beban kerja'
         }
 
-        // Bungkus ke Array Asosiatif untuk dikirim ke Blade/JS
+
         $chartDataDetail = [
             'labels' => $detailLabels,
             'data'   => $detailData,
@@ -191,7 +191,7 @@ class GeneralAffairController extends Controller
         $chartDataPhase = [
             'labels' => $phaseLabels,
             'data'   => $phaseData,
-            'colors' => '#eab308' // Kuning (Satu warna solid untuk grouping)
+            'colors' => '#eab308'
         ];
 
         // --- 4. CHART LAINNYA (LOKASI, DEPT, PARAMETER, BOBOT) ---
@@ -250,17 +250,18 @@ class GeneralAffairController extends Controller
         // --- 6. RETURN VIEW ---
         return view('Division.GeneralAffair.Dashboard', compact(
             'workOrders',
-            // Stats
+            // Status
             'countTotal',
             'countPending',
             'countInProgress',
             'countCompleted',
-            // Performance
+            //Performance
             'perfTotal',
             'perfCompleted',
             'perfPercentage',
+            //filtermonth
             'filterMonth',
-            // Charts Statistik
+            //chart
             'chartLocLabels',
             'chartLocValues',
             'chartDeptLabels',
@@ -269,7 +270,6 @@ class GeneralAffairController extends Controller
             'chartParamValues',
             'chartBobotLabels',
             'chartBobotValues',
-            // DATA GANTT BARU (Detail & Phase)
             'chartDataDetail',
             'chartDataPhase'
         ));

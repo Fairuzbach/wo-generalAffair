@@ -1,7 +1,7 @@
 @section('browser_title', 'GA Dashboard')
 
 <x-app-layout>
-    {{-- HEADER DENGAN TEMA INDUSTRIAL (HITAM/KUNING) --}}
+    {{-- HEADER --}}
     <x-slot name="header">
         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <h2 class="font-extrabold text-xl text-slate-900 leading-tight uppercase flex items-center gap-3">
@@ -11,7 +11,6 @@
 
             <div class="flex gap-2">
                 {{-- TOMBOL DOWNLOAD PDF --}}
-                {{-- Fungsi exportToPdf() didefinisikan di dalam x-dashboard.gantt-chart --}}
                 <button onclick="exportToPDF()"
                     class="bg-red-600 text-white hover:bg-red-700 font-bold py-2 px-4 rounded text-sm uppercase tracking-wide transition flex items-center gap-2 shadow-sm">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -31,7 +30,6 @@
     </x-slot>
 
     {{-- LOAD LIBRARY (CDN) --}}
-    {{-- Library ini dibutuhkan oleh child components (Gantt, Pie, dll) --}}
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2.1.0"></script>
@@ -82,22 +80,22 @@
 
     {{-- KONTEN UTAMA --}}
     <div class="py-12 bg-slate-50">
-        {{-- ID 'dashboard-content' ini yang akan difoto oleh html2canvas --}}
+
         <div id="dashboard-content" class="max-w-8xl mx-auto sm:px-6 lg:px-8 p-4 bg-slate-50">
 
             {{-- 1. STATISTIK CARDS --}}
             <x-dashboard.stats-card :countTotal="$countTotal" :countPending="$countPending" :countInProgress="$countInProgress" :countCompleted="$countCompleted" />
 
-            {{-- 2. GRID GRAFIK (Lokasi, Dept, dll) --}}
+            {{-- 2. GRID GRAFIK --}}
             <x-dashboard.graph-grid :filterMonth="$filterMonth" :perfPercentage="$perfPercentage" :perfTotal="$perfTotal" :perfCompleted="$perfCompleted" />
 
             {{-- 3. PIE CHART & DATE RANGE --}}
-            {{-- Asumsi komponen ini menangani UI filternya sendiri --}}
+
             <x-dashboard.pie-chart />
             <x-dashboard.date-range />
 
-            {{-- 4. GANTT CHART (YANG BARU KITA PERBAIKI) --}}
-            {{-- Kita oper data hasil olahan Controller --}}
+            {{-- 4. GANTT CHART  --}}
+
             <x-dashboard.gantt-chart :chartDataDetail="$chartDataDetail" :chartDataPhase="$chartDataPhase" />
 
         </div>
