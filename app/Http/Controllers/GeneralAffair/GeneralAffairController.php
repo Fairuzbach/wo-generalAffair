@@ -100,63 +100,125 @@ class GeneralAffairController extends Controller
             abort(403, 'Akses Ditolak.');
         }
 
-        // Ambil 10 Tiket Terakhir (exclude cancelled)
+        // --- 1. QUERY UTAMA ---
+        // Ambil Tiket (exclude cancelled)
         $query = WorkOrderGeneralAffair::where('status', '!=', 'cancelled');
+
+        // Filter Tanggal
         if ($request->filled('start_date') && $request->filled('end_date')) {
             $query->whereDate('created_at', '>=', $request->start_date)
-                ->whereDate('created_at', '<=', $request->end_date)->latest();
-        } else {
-            $query->latest()->take(30);
-        }
-        $workOrders = $query->get();
-
-        $statsQuery = WorkOrderGeneralAffair::query();
-
-        if ($request->filled('start_date') && $request->filled('end_date')) {
-            $statsQuery->whereDate('created_at', '>=', $request->start_date)
                 ->whereDate('created_at', '<=', $request->end_date);
         }
 
-        // Counter Utama
+        // Clone query untuk statistik (agar filter tanggal tetap terbawa)
+        $statsQuery = clone $query;
+
+        // Ambil Data untuk List & Gantt
+        // PENTING: Urutkan berdasarkan created_at ASC (kronologis) agar Gantt Chart rapi
+        if (!$request->filled('start_date')) {
+            $query->orderBy('created_at', 'asc')->take(100); // Limit 100 agar tidak terlalu berat jika tanpa filter
+        } else {
+            $query->orderBy('created_at', 'asc');
+        }
+
+        $workOrders = $query->get();
+
+        // --- 2. HITUNG STATISTIK COUNTER ---
         $countTotal = (clone $statsQuery)->count();
         $countPending = (clone $statsQuery)->where('status', 'pending')->count();
         $countInProgress = (clone $statsQuery)->where('status', 'in_progress')->count();
         $countCompleted = (clone $statsQuery)->where('status', 'completed')->count();
 
-        // Chart 1: LOKASI
-        $locData = (clone $statsQuery)
-            ->selectRaw("plant as location, count(*) as total")
-            ->whereNotNull('plant')
-            ->groupBy('plant')
-            ->orderByDesc('total')
-            ->get();
-        $chartLocLabels = $locData->pluck('location')->toArray();
+        // --- 3. [BARU] SIAPKAN DATA CHART (DETAIL & PHASE) ---
+
+        // A. DATA MODE DETAIL (Per Tiket)
+        $detailLabels = [];
+        $detailData   = [];
+        $detailColors = [];
+
+        foreach ($workOrders as $wo) {
+            // Label: [DEPT] No Tiket
+            $deptCode = $wo->department ?? '-';
+            $detailLabels[] = "[$deptCode] $wo->ticket_num";
+
+            // Hitung Durasi (Dalam Hari)
+            $start = Carbon::parse($wo->created_at);
+
+            // Tentukan tanggal akhir
+            if ($wo->status == 'completed' && $wo->actual_completion_date) {
+                $end = Carbon::parse($wo->actual_completion_date);
+            } elseif ($wo->target_completion_date) {
+                $end = Carbon::parse($wo->target_completion_date);
+            } else {
+                $end = now(); // Jika belum selesai & belum ada target, pakai hari ini
+            }
+
+            // Validasi: End tidak boleh kurang dari Start
+            if ($end < $start) $end = $start;
+
+            // Hitung selisih hari (Minimal 1 hari agar bar terlihat)
+            $diffDays = $start->diffInDays($end);
+            $detailData[] = $diffDays < 1 ? 1 : $diffDays;
+
+            // Warna berdasarkan Status
+            if ($wo->status == 'completed') {
+                $detailColors[] = '#10b981'; // Hijau (Completed)
+            } elseif ($wo->status == 'delayed' || ($wo->status != 'completed' && $end < now())) {
+                $detailColors[] = '#ef4444'; // Merah (Delayed/Overdue)
+            } else {
+                $detailColors[] = '#3b82f6'; // Biru (In Progress/Planned)
+            }
+        }
+
+        // B. DATA MODE PHASE (Group by Department)
+        // Kita hitung jumlah tiket per departemen
+        $groupedDept = $workOrders->groupBy('department');
+        $phaseLabels = [];
+        $phaseData   = [];
+
+        foreach ($groupedDept as $deptName => $tickets) {
+            $phaseLabels[] = $deptName ?? 'Unassigned';
+            $phaseData[]   = $tickets->count(); // Jumlah tiket sebagai 'beban kerja'
+        }
+
+        // Bungkus ke Array Asosiatif untuk dikirim ke Blade/JS
+        $chartDataDetail = [
+            'labels' => $detailLabels,
+            'data'   => $detailData,
+            'colors' => $detailColors
+        ];
+
+        $chartDataPhase = [
+            'labels' => $phaseLabels,
+            'data'   => $phaseData,
+            'colors' => '#eab308' // Kuning (Satu warna solid untuk grouping)
+        ];
+
+        // --- 4. CHART LAINNYA (LOKASI, DEPT, PARAMETER, BOBOT) ---
+        // Helper function
+        $getChartData = function ($col, $q) {
+            return $q->selectRaw("$col as label, count(*) as total")
+                ->whereNotNull($col)->groupBy($col)->orderByDesc('total')->get();
+        };
+
+        // Chart Lokasi
+        $locData = $getChartData('plant', clone $statsQuery);
+        $chartLocLabels = $locData->pluck('label')->toArray();
         $chartLocValues = $locData->pluck('total')->toArray();
 
-        // Chart 2: DEPARTMENT
-        $deptData = (clone $statsQuery)
-            ->selectRaw("department, count(*) as total")
-            ->whereNotNull('department')
-            ->groupBy('department')
-            ->orderByDesc('total')
-            ->get();
-        $chartDeptLabels = $deptData->pluck('department')->toArray();
+        // Chart Dept (Pie Chart Statistik)
+        $deptData = $getChartData('department', clone $statsQuery);
+        $chartDeptLabels = $deptData->pluck('label')->toArray();
         $chartDeptValues = $deptData->pluck('total')->toArray();
 
-        // Chart 3: PARAMETER
-        $paramData = (clone $statsQuery)
-            ->selectRaw("parameter_permintaan, count(*) as total")
-            ->whereNotNull('parameter_permintaan')
-            ->groupBy('parameter_permintaan')
-            ->get();
-        $chartParamLabels = $paramData->pluck('parameter_permintaan')->toArray();
+        // Chart Parameter
+        $paramData = $getChartData('parameter_permintaan', clone $statsQuery);
+        $chartParamLabels = $paramData->pluck('label')->toArray();
         $chartParamValues = $paramData->pluck('total')->toArray();
 
-        // Chart 4: BOBOT
-        $bobotData = (clone $statsQuery)
-            ->selectRaw('category, count(*) as total')
-            ->groupBy('category')
-            ->pluck('total', 'category')->toArray();
+        // Chart Bobot
+        $bobotData = (clone $statsQuery)->selectRaw('category, count(*) as total')
+            ->groupBy('category')->pluck('total', 'category')->toArray();
 
         $chartBobotLabels = ['Berat (High)', 'Sedang (Medium)', 'Ringan (Low)'];
         $chartBobotValues = [
@@ -164,20 +226,16 @@ class GeneralAffairController extends Controller
             $bobotData['SEDANG'] ?? 0,
             $bobotData['RINGAN'] ?? 0
         ];
-        // 1. Ambil Bulan Filter (Default: Bulan Ini)
-        $filterMonth = $request->input('filter_month', date('Y-m')); // Format YYYY-MM
+
+        // --- 5. PERFORMANCES ---
+        $filterMonth = $request->input('filter_month', date('Y-m'));
         $year = substr($filterMonth, 0, 4);
         $month = substr($filterMonth, 5, 2);
 
-        // 2. Query Khusus Persentase
-        // Logika: Ambil tiket yang TARGET-nya di bulan ini. 
-        // Jika target kosong, ambil yang DIBUAT di bulan ini.
         $perfQuery = WorkOrderGeneralAffair::where('status', '!=', 'cancelled')
             ->where(function ($q) use ($year, $month) {
-                // Kondisi A: Punya Target Date di bulan terpilih
                 $q->whereYear('target_completion_date', $year)
                     ->whereMonth('target_completion_date', $month)
-                    // Kondisi B: Target NULL, tapi Created At di bulan terpilih
                     ->orWhere(function ($sub) use ($year, $month) {
                         $sub->whereNull('target_completion_date')
                             ->whereYear('created_at', $year)
@@ -187,65 +245,22 @@ class GeneralAffairController extends Controller
 
         $perfTotal = $perfQuery->count();
         $perfCompleted = (clone $perfQuery)->where('status', 'completed')->count();
-
-        // Hitung Persentase (Hindari division by zero)
         $perfPercentage = $perfTotal > 0 ? round(($perfCompleted / $perfTotal) * 100) : 0;
 
-        // Chart 5: GANTT CHART
-        $ganttLabels = [];
-        $ganttData = [];
-        $ganttColors = [];
-        $ganttRawData = [];
-
-        foreach ($workOrders as $wo) {
-            $deptCode = $wo->department ?? '-';
-            $ganttLabels[] = "[" . $deptCode . "] " . $wo->ticket_num;
-
-            // Format Tanggal
-            $start = $wo->created_at ? Carbon::parse($wo->created_at)->format('Y-m-d') : date('Y-m-d');
-
-            if ($wo->status == 'completed' && $wo->actual_completion_date) {
-                $endRaw = $wo->actual_completion_date;
-            } else {
-                $endRaw = $wo->target_completion_date ?? date('Y-m-d');
-            }
-            $end = Carbon::parse($endRaw)->format('Y-m-d');
-
-            // VALIDASI VISUALISASI GRAFIK
-            if ($end < $start) {
-                $end = $start; // Cegah error tanggal minus
-            }
-            if ($end == $start) {
-                // TRIK: Jika mulai & selesai di hari yang sama, tambah 1 hari agar grafik terlihat (muncul balok pendek)
-                $end = Carbon::parse($end)->addDay()->format('Y-m-d');
-            }
-
-            $ganttData[] = [$start, $end];
-
-            // LOGIKA WARNA (ABU-ABU JIKA SELESAI)
-            if ($wo->status == 'completed') {
-                $ganttColors[] = '#94a3b8'; // Abu-abu
-            } else {
-                $ganttColors[] = match ($wo->category) {
-                    'BERAT' => '#ef4444',
-                    'SEDANG' => '#f59e0b',
-                    default => '#22c55e',
-                };
-            }
-
-            // Data Pelengkap untuk Tooltip
-            $ganttRawData[] = [
-                'dept' => $wo->department ?? 'General',
-                'loc' => $wo->plant ?? '-',
-                'status' => $wo->status // <--- Pastikan ini ada agar ceklis muncul
-            ];
-        }
-
+        // --- 6. RETURN VIEW ---
         return view('Division.GeneralAffair.Dashboard', compact(
+            'workOrders',
+            // Stats
             'countTotal',
             'countPending',
             'countInProgress',
             'countCompleted',
+            // Performance
+            'perfTotal',
+            'perfCompleted',
+            'perfPercentage',
+            'filterMonth',
+            // Charts Statistik
             'chartLocLabels',
             'chartLocValues',
             'chartDeptLabels',
@@ -254,15 +269,9 @@ class GeneralAffairController extends Controller
             'chartParamValues',
             'chartBobotLabels',
             'chartBobotValues',
-            'ganttLabels',
-            'ganttData',
-            'ganttColors',
-            'ganttRawData',
-            'workOrders',
-            'perfTotal',
-            'perfCompleted',
-            'perfPercentage',
-            'filterMonth'
+            // DATA GANTT BARU (Detail & Phase)
+            'chartDataDetail',
+            'chartDataPhase'
         ));
     }
 
