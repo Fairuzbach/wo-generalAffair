@@ -81,26 +81,28 @@
 
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // --- DATA & ELEMENTS ---
         const rawDetail = {!! json_encode($chartDataDetail ?? ['labels' => [], 'data' => [], 'colors' => []]) !!};
         const rawPhase = {!! json_encode($chartDataPhase ?? ['labels' => [], 'data' => [], 'colors' => []]) !!};
 
-        const ctx = document.getElementById('ganttChart').getContext('2d');
+        const canvasId = 'ganttChart';
+        const ctx = document.getElementById(canvasId).getContext('2d');
+
+        // Destroy existing chart if any (Mencegah error Canvas reused)
+        const existingChart = Chart.getChart(canvasId);
+        if (existingChart) existingChart.destroy();
+
+        const toggleBtn = document.getElementById('togglePhase');
         const viewModeSelect = document.getElementById('viewModeSelect');
         const timeRangeSelect = document.getElementById('timeRangeSelect');
         const statusFilter = document.getElementById('ganttStatusFilter');
-        const toggleBtn = document.getElementById('togglePhase'); // Jika tombol masih ada
 
         let isPhaseView = false;
-
-        // Map Warna Status
         const colorMap = {
             'completed': '#10b981',
             'delayed': '#ef4444',
             'in-progress': '#3b82f6'
         };
 
-        // --- CONFIG CHART ---
         if (typeof ChartDataLabels !== 'undefined') Chart.register(ChartDataLabels);
 
         const chartConfig = {
@@ -191,102 +193,91 @@
 
         let myGanttChart = new Chart(ctx, chartConfig);
 
+        // --- EVENT LISTENERS ---
+        function updateChartData(labels, data, colors) {
+            myGanttChart.data.labels = labels;
+            myGanttChart.data.datasets[0].data = data;
+            myGanttChart.data.datasets[0].backgroundColor = colors;
+            myGanttChart.update();
+        }
 
-        // ============================================================
-        // 1. LOGIC VIEW MODE (SELECT: TASK vs DEPT)
-        // ============================================================
-        viewModeSelect.addEventListener('change', function(e) {
-            const mode = e.target.value;
-
-            if (mode === 'phase') {
-                // --- Switch to Phase ---
-                isPhaseView = true;
-                updateChartData(rawPhase.labels, rawPhase.data, rawPhase.colors);
-
-                // Disable Filter Status karena Phase adalah rekap
-                if (statusFilter) {
-                    statusFilter.value = 'all';
-                    statusFilter.disabled = true;
+        // 1. View Mode
+        if (viewModeSelect) {
+            viewModeSelect.addEventListener('change', function(e) {
+                const mode = e.target.value;
+                if (mode === 'phase') {
+                    isPhaseView = true;
+                    updateChartData(rawPhase.labels, rawPhase.data, rawPhase.colors);
+                    if (statusFilter) {
+                        statusFilter.value = 'all';
+                        statusFilter.disabled = true;
+                    }
+                    myGanttChart.options.scales.x.title.text = 'Jumlah Tiket';
+                } else {
+                    isPhaseView = false;
+                    updateChartData(rawDetail.labels, rawDetail.data, rawDetail.colors);
+                    if (statusFilter) statusFilter.disabled = false;
+                    myGanttChart.options.scales.x.title.text = 'Durasi (Hari)';
                 }
-
-                myGanttChart.options.scales.x.title.text = 'Jumlah Tiket';
-            } else {
-                // --- Switch to Task (Detail) ---
-                isPhaseView = false;
-                updateChartData(rawDetail.labels, rawDetail.data, rawDetail.colors);
-
-                if (statusFilter) {
-                    statusFilter.disabled = false;
-                }
-
-                myGanttChart.options.scales.x.title.text = 'Durasi (Hari)';
-            }
-        });
-
-        // Sinkronisasi jika tombol Toggle lama masih ditekan
-        if (toggleBtn) {
-            toggleBtn.addEventListener('click', function() {
-                // Ubah value dropdown lalu trigger event change secara manual
-                viewModeSelect.value = (viewModeSelect.value === 'task') ? 'phase' : 'task';
-                viewModeSelect.dispatchEvent(new Event('change'));
             });
         }
 
+        // 2. Toggle Sync
+        if (toggleBtn && viewModeSelect) {
+            toggleBtn.addEventListener('click', function() {
+                viewModeSelect.value = (viewModeSelect.value === 'task') ? 'phase' : 'task';
+                viewModeSelect.dispatchEvent(new Event('change'));
 
-        // ============================================================
-        // 2. LOGIC TIME RANGE (MINGGU INI vs BULAN INI)
-        // ============================================================
-        timeRangeSelect.addEventListener('change', function(e) {
-            const range = e.target.value;
-            const now = new Date();
-            let startDate, endDate;
+                if (viewModeSelect.value === 'phase') {
+                    toggleBtn.innerText = "View: Detail Tasks";
+                    toggleBtn.className =
+                        "px-3 py-1.5 text-xs font-bold bg-yellow-100 text-yellow-800 rounded-sm border border-yellow-400";
+                } else {
+                    toggleBtn.innerText = "Toggle Phase";
+                    toggleBtn.className =
+                        "px-3 py-1.5 text-xs font-bold bg-slate-100 text-slate-700 rounded-sm border border-slate-300";
+                }
+            });
+        }
 
-            // Helper format YYYY-MM-DD
-            const formatDate = (date) => date.toISOString().split('T')[0];
+        // 3. Time Range
+        if (timeRangeSelect) {
+            timeRangeSelect.addEventListener('change', function(e) {
+                const range = e.target.value;
+                const now = new Date();
+                let startDate, endDate;
+                const formatDate = (date) => date.toISOString().split('T')[0];
 
-            if (range === 'week') {
-                // Hitung Awal Minggu (Senin) & Akhir Minggu (Minggu)
-                const day = now.getDay();
-                const diff = now.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
+                if (range === 'week') {
+                    const day = now.getDay();
+                    const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+                    const monday = new Date(now.setDate(diff));
+                    const sunday = new Date(now.setDate(monday.getDate() + 6));
+                    startDate = formatDate(monday);
+                    endDate = formatDate(sunday);
+                } else {
+                    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+                    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+                    startDate = formatDate(firstDay);
+                    endDate = formatDate(lastDay);
+                }
 
-                const monday = new Date(now.setDate(diff));
-                const sunday = new Date(now.setDate(monday.getDate() + 6));
+                const currentUrl = new URL(window.location.href);
+                currentUrl.searchParams.set('start_date', startDate);
+                currentUrl.searchParams.set('end_date', endDate);
+                currentUrl.searchParams.set('range_mode', range);
+                window.location.href = currentUrl.toString();
+            });
+        }
 
-                startDate = formatDate(monday);
-                endDate = formatDate(sunday);
-            } else {
-                // Hitung Awal Bulan & Akhir Bulan
-                const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-                const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-
-                startDate = formatDate(firstDay);
-                endDate = formatDate(lastDay);
-            }
-
-            // --- RELOAD PAGE DENGAN PARAMETER BARU ---
-            // Kita gunakan URL Search Params agar parameter lain tidak hilang (opsional)
-            const currentUrl = new URL(window.location.href);
-            currentUrl.searchParams.set('start_date', startDate);
-            currentUrl.searchParams.set('end_date', endDate);
-            currentUrl.searchParams.set('range_mode', range); // Untuk mengingat pilihan dropdown
-
-            window.location.href = currentUrl.toString();
-        });
-
-
-        // ============================================================
-        // 3. LOGIC STATUS FILTER (COMPLETED, DELAYED, ETC)
-        // ============================================================
+        // 4. Status Filter
         if (statusFilter) {
             statusFilter.addEventListener('change', function(e) {
                 const status = e.target.value;
-
-                // Jika user filter saat mode Phase, paksa balik ke Task dulu
                 if (isPhaseView) {
                     viewModeSelect.value = 'task';
                     viewModeSelect.dispatchEvent(new Event('change'));
                 }
-
                 if (status === 'all') {
                     updateChartData(rawDetail.labels, rawDetail.data, rawDetail.colors);
                 } else {
@@ -294,7 +285,6 @@
                     let fLabels = [],
                         fData = [],
                         fColors = [];
-
                     rawDetail.colors.forEach((color, index) => {
                         if (color && color.toLowerCase().includes(targetColor)) {
                             fLabels.push(rawDetail.labels[index]);
@@ -305,14 +295,6 @@
                     updateChartData(fLabels, fData, fColors);
                 }
             });
-        }
-
-        // --- HELPER UPDATE CHART ---
-        function updateChartData(labels, data, colors) {
-            myGanttChart.data.labels = labels;
-            myGanttChart.data.datasets[0].data = data;
-            myGanttChart.data.datasets[0].backgroundColor = colors;
-            myGanttChart.update();
         }
     });
 </script>

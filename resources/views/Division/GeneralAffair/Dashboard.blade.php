@@ -1,15 +1,18 @@
 @section('browser_title', 'GA Dashboard')
+
 <x-app-layout>
-    {{-- Header dengan Tema Caterpillar (Hitam/Kuning) --}}
+    {{-- HEADER DENGAN TEMA INDUSTRIAL (HITAM/KUNING) --}}
     <x-slot name="header">
-        <div class="flex justify-between items-center">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <h2 class="font-extrabold text-xl text-slate-900 leading-tight uppercase flex items-center gap-3">
                 <span class="w-3 h-8 bg-yellow-400 rounded-sm inline-block"></span>
                 {{ __('Dashboard Statistik') }}
             </h2>
+
             <div class="flex gap-2">
-                {{-- TOMBOL DOWNLOAD PDF BARU --}}
-                <button onclick="exportToPdf()"
+                {{-- TOMBOL DOWNLOAD PDF --}}
+                {{-- Fungsi exportToPdf() didefinisikan di dalam x-dashboard.gantt-chart --}}
+                <button onclick="exportToPDF()"
                     class="bg-red-600 text-white hover:bg-red-700 font-bold py-2 px-4 rounded text-sm uppercase tracking-wide transition flex items-center gap-2 shadow-sm">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -27,20 +30,24 @@
         </div>
     </x-slot>
 
+    {{-- LOAD LIBRARY (CDN) --}}
+    {{-- Library ini dibutuhkan oleh child components (Gantt, Pie, dll) --}}
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2.1.0"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js">
     </script>
+
+    {{-- Library PDF Generator --}}
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    {{-- <script>
-            window.gaDashboardData = @json($dashboardData);
-        </script> --}}
-    @vite(['resources/css/dashboard.css', 'resources/js/dashboard/index.js'])
 
-    {{-- DATA INJECTION (PHP ke JS) --}}
+    {{-- LOAD RESOURCES --}}
+    @vite(['resources/css/dashboard.css', 'resources/js/dashboard.js'])
+
+    {{-- DATA INJECTION (PHP ke JS Global) --}}
+    {{-- Ini digunakan oleh file index.js untuk chart statistik lainnya (Pie, Bar Chart Dept, dll) --}}
     <script>
         window.gaDashboardData = {
             performance: {
@@ -64,36 +71,35 @@
                 labels: @json($chartBobotLabels),
                 values: @json($chartBobotValues)
             },
-            gantt: {
-                labels: @json($ganttLabels ?? []),
-                data: @json($ganttData ?? []),
-                colors: @json($ganttColors ?? []),
-                raw: @json($ganttRawData ?? [])
-            },
             meta: {
                 filterMonth: "{{ $filterMonth }}",
+                // Safe navigation operator (?.) untuk menghindari error jika data kosong
                 defaultStartDateFilename: "{{ $workOrders->min('created_at')?->format('Y-m-d') ?? date('Y-m-d') }}",
                 defaultStartDateHeader: "{{ $workOrders->min('created_at')?->translatedFormat('d F Y') ?? date('d F Y') }}"
             }
         };
     </script>
 
+    {{-- KONTEN UTAMA --}}
     <div class="py-12 bg-slate-50">
+        {{-- ID 'dashboard-content' ini yang akan difoto oleh html2canvas --}}
         <div id="dashboard-content" class="max-w-8xl mx-auto sm:px-6 lg:px-8 p-4 bg-slate-50">
-            {{-- B. STATISTIK CARDS (Interactive Industrial Style) --}}
-            {{-- B. STATISTIK CARDS (High Interactivity) --}}
+
+            {{-- 1. STATISTIK CARDS --}}
             <x-dashboard.stats-card :countTotal="$countTotal" :countPending="$countPending" :countInProgress="$countInProgress" :countCompleted="$countCompleted" />
 
-            {{-- Grid Grafik --}}
-            {{-- GRID GRAFIK (INDUSTRIAL STYLE) --}}
+            {{-- 2. GRID GRAFIK (Lokasi, Dept, dll) --}}
             <x-dashboard.graph-grid :filterMonth="$filterMonth" :perfPercentage="$perfPercentage" :perfTotal="$perfTotal" :perfCompleted="$perfCompleted" />
 
-            {{-- Pie Chart --}}
+            {{-- 3. PIE CHART & DATE RANGE --}}
+            {{-- Asumsi komponen ini menangani UI filternya sendiri --}}
             <x-dashboard.pie-chart />
-
-            {{-- Date Range --}}
             <x-dashboard.date-range />
 
-            {{-- Gantt Chart (Container Kuning) --}}
+            {{-- 4. GANTT CHART (YANG BARU KITA PERBAIKI) --}}
+            {{-- Kita oper data hasil olahan Controller --}}
             <x-dashboard.gantt-chart :chartDataDetail="$chartDataDetail" :chartDataPhase="$chartDataPhase" />
+
+        </div>
+    </div>
 </x-app-layout>
