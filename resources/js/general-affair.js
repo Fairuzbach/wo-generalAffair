@@ -10,7 +10,12 @@ document.addEventListener('alpine:init', () => {
         showCreateModal: false,
         showConfirmModal: false,
         showEditModal: false,
+        showAcceptModal:false,
+        showRejectModal:false,
         show: false,
+
+        acceptId:'',
+        rejectId:'',
 
         // Data Selection
         selected: JSON.parse(localStorage.getItem('ga_selected_ids') || '[]').map(String),

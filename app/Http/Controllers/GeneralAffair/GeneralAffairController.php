@@ -4,27 +4,53 @@ namespace App\Http\Controllers\GeneralAffair;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 // --- IMPORT LIBRARY EXCEL ---
 use Maatwebsite\Excel\Facades\Excel;
 use App\Exports\WorkOrderExport;
 // ----------------------------
 use App\Models\GeneralAffair\WorkOrderGeneralAffair;
 use App\Models\GeneralAffair\WorkOrderGaHistory;
+use App\Models\User;
+use App\Models\Employee;
 use Illuminate\Support\Facades\Auth;
 use Carbon\Carbon;
 use App\Models\Engineering\Plant;
 
 class GeneralAffairController extends Controller
 {
+
+    public function checkEmployee(Request $request)
+    {
+        $request->validate(['nik' => 'required|string']);
+
+        // PERBAIKAN: Cari di tabel 'employees', bukan 'users'
+        // Sesuaikan nama kolom jika beda (misal: 'employee_id' atau 'nik')
+        $employee = DB::table('employees')->where('nik', $request->nik)->first();
+
+        if ($employee) {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'name' => $employee->name, // Pastikan kolom 'name' ada di tabel employees
+                    'division' => $employee->department ?? '-', // Pastikan kolom 'department' ada
+                    'nik' => $employee->nik
+                ]
+            ]);
+        }
+
+        return response()->json(['success' => false, 'message' => 'Data karyawan tidak ditemukan.'], 404);
+    }
+
     // --- 1. HELPER QUERY (Untuk Filter) ---
     private function buildQuery(Request $request)
     {
         $query = WorkOrderGeneralAffair::query();
         $user = Auth::user();
-
-        // Jika bukan Admin GA, hanya lihat tiket sendiri
-        if ($user->role !== 'ga.admin') {
-            $query->where('requester_id', $user->id);
+        if ($user) {
+            if ($user->role !== 'ga.admin') {
+                $query->where('requester_id', $user->id);
+            }
         }
 
         // Filter Search
@@ -65,20 +91,109 @@ class GeneralAffairController extends Controller
     // --- 2. HALAMAN UTAMA (INDEX) - YANG TADI HILANG ---
     public function index(Request $request)
     {
-        $query = $this->buildQuery($request);
-        $workOrders = $query->with(['user', 'histories.user'])->paginate(10)->withQueryString();
+        $user = Auth::user();
+
+        // 1. INITIALIZE QUERY
+        $query = WorkOrderGeneralAffair::query();
+
+        // ---------------------------------------------------------
+        // A. LOGIKA HAK AKSES (ROLE SCOPE) - "Siapa boleh lihat apa"
+        // ---------------------------------------------------------
+        if ($user) {
+            // 1. GA ADMIN: Lihat semua KECUALI yang masih waiting_spv
+            if ($user->role === 'ga.admin') {
+                $query->where('status', '!=', 'waiting_spv');
+            }
+            // 2. ENGINEER ADMIN: Lihat semua tiket Dept Engineering (Approved & Waiting)
+            elseif ($user->role === 'eng.admin') {
+                $query->where(function ($q) {
+                    $q->where('requester_department', 'LIKE', '%Engineering%')
+                        ->orWhereNull('requester_department');
+                });
+            }
+            // 3. USER BIASA: Hanya lihat tiket sendiri
+            else {
+                $query->where('requester_id', $user->id);
+            }
+        }
+
+        // ---------------------------------------------------------
+        // B. LOGIKA FILTER CONTROL PANEL (Search, Status, Category)
+        // ---------------------------------------------------------
+
+        // 1. Search Global (Tiket, Nama, Deskripsi)
+        $query->when($request->search, function ($q) use ($request) {
+            $q->where(function ($sub) use ($request) {
+                $sub->where('ticket_num', 'LIKE', "%{$request->search}%")
+                    ->orWhere('requester_name', 'LIKE', "%{$request->search}%")
+                    ->orWhere('description', 'LIKE', "%{$request->search}%");
+            });
+        });
+
+        // 2. Filter Status (Dropdown)
+        $query->when($request->status, function ($q) use ($request) {
+            if ($request->status !== 'all') { // Pastikan value 'all' tidak di-filter
+                $q->where('status', $request->status);
+            }
+        });
+
+        // 3. Filter Category (Bobot)
+        $query->when($request->category, function ($q) use ($request) {
+            if ($request->category !== 'all') {
+                $q->where('category', $request->category);
+            }
+        });
+
+        // 4. Filter Parameter (Jenis)
+        $query->when($request->parameter, function ($q) use ($request) { // Sesuaikan nama input di blade (parameter atau parameter_permintaan)
+            if ($request->parameter !== 'all') {
+                $q->where('parameter_permintaan', $request->parameter);
+            }
+        });
+
+        // 5. Filter Plant/Lokasi
+        $query->when($request->plant_id, function ($q) use ($request) {
+            if ($request->plant_id !== 'all') {
+                $q->where('plant', $request->plant_id); // Atau plant_id tergantung kolom DB
+            }
+        });
+
+
+        // ---------------------------------------------------------
+        // C. EKSEKUSI DATA UTAMA
+        // ---------------------------------------------------------
+        $workOrders = $query->with(['user', 'histories.user'])
+            ->orderBy('created_at', 'desc')
+            ->paginate(10)
+            ->withQueryString();
+
         $pageIds = $workOrders->pluck('id')->toArray();
         $plants = Plant::whereNotIn('name', ['QC', 'GA', 'FO', 'PE', 'QR', 'SS', 'MT', 'FH'])->get();
 
-        // Counter Sederhana untuk Index
-        $user = Auth::user();
+
+        // ---------------------------------------------------------
+        // D. LOGIKA COUNTER (STATISTIK)
+        // ---------------------------------------------------------
+        // Kita buat query baru khusus statistik agar angkanya tetap 
+        // menunjukkan Total Global User tersebut (tidak terpengaruh filter table)
+
         $statsQuery = WorkOrderGeneralAffair::query();
-        if ($user->role !== 'ga.admin') {
-            $statsQuery->where('requester_id', $user->id);
+
+        if ($user) {
+            if ($user->role === 'ga.admin') {
+                $statsQuery->where('status', '!=', 'waiting_spv');
+            } elseif ($user->role === 'eng.admin') {
+                $statsQuery->where(function ($q) {
+                    $q->where('requester_department', 'LIKE', '%Engineering%')
+                        ->orWhereNull('requester_department');
+                });
+            } else {
+                $statsQuery->where('requester_id', $user->id);
+            }
         }
 
         $countTotal = (clone $statsQuery)->count();
-        $countPending = (clone $statsQuery)->where('status', 'pending')->count();
+        $countPending = (clone $statsQuery)->where('status', 'waiting_spv')->count();
         $countInProgress = (clone $statsQuery)->where('status', 'in_progress')->count();
         $countCompleted = (clone $statsQuery)->where('status', 'completed')->count();
 
@@ -92,12 +207,125 @@ class GeneralAffairController extends Controller
             'countCompleted'
         ));
     }
+    // Method Approve (Update Logika)
+    public function approve(Request $request, $id)
+    {
+        try {
+            DB::beginTransaction();
+
+            $user = Auth::user();
+            $ticket = WorkOrderGeneralAffair::findOrFail($id);
+            $action = ''; // Inisialisasi variabel
+            $desc = '';
+
+            // SKENARIO 1: ENGINEER ADMIN APPROVE
+            if ($user->role === 'eng.admin') {
+                $ticket->update(['status' => 'pending']);
+                $action = 'Approved by SPV';
+                $desc = 'Disetujui Eng Admin, diteruskan ke GA (Status: Pending)';
+            }
+            // SKENARIO 2: GA ADMIN APPROVE (TERIMA TIKET)
+            elseif ($user->role === 'ga.admin') {
+
+                // Validasi Input Nama PIC
+                $request->validate([
+                    'processed_by_name' => 'required|string|max:255'
+                ]);
+
+                $ticket->update([
+                    'status' => 'in_progress',
+                    'processed_by_name' => $request->processed_by_name, // Simpan Nama PIC
+                    'processed_at' => now() // Simpan waktu mulai
+                ]);
+
+                $action = 'Accepted by GA';
+                $desc = 'Tiket diterima oleh GA Admin. PIC: ' . $request->processed_by_name;
+            } else {
+                return redirect()->back()->with('error', 'Anda tidak memiliki akses approval.');
+            }
+
+            // Catat History (Dilakukan untuk kedua role)
+            WorkOrderGaHistory::create([
+                'work_order_id' => $ticket->id,
+                'user_id' => $user->id,
+                'action' => $action,
+                'description' => $desc
+            ]);
+
+            DB::commit();
+
+            // --- [LOGIKA REDIRECT] ---
+
+            // Jika GA Admin, kirim data tiket balik ke View agar Modal Edit terbuka Otomatis
+            if ($user->role === 'ga.admin') {
+                return redirect()->back()
+                    ->with('success', 'Tiket diterima! Silakan lengkapi detail (Dept/Target/Foto) jika diperlukan.')
+                    ->with('auto_edit_ticket', $ticket); // <--- INI KUNCINYA
+            }
+
+            // Jika Eng Admin, redirect biasa
+            return redirect()->back()->with('success', 'Status tiket berhasil diperbarui.');
+        } catch (\Exception $e) {
+            DB::rollback();
+            return redirect()->back()->with('error', 'Gagal: ' . $e->getMessage());
+        }
+    }
+    private function generateTicketNum()
+    {
+        $prefix = 'GA-' . date('Ymd');
+        $lastTicket = \App\Models\GeneralAffair\WorkOrderGeneralAffair::where('ticket_num', 'like', $prefix . '%')
+            ->orderBy('id', 'desc')
+            ->first();
+
+        if (!$lastTicket) {
+            $number = '0001';
+        } else {
+            $lastNumber = substr($lastTicket->ticket_num, -4);
+            $number = sprintf('%04d', intval($lastNumber) + 1);
+        }
+
+        return $prefix . '-' . $number;
+    }
+
+    // Method Reject (Baru)
+    public function reject(Request $request, $id)
+    {
+        try {
+            DB::beginTransaction();
+
+            $user = Auth::user();
+            $ticket = WorkOrderGeneralAffair::findOrFail($id);
+
+            // [VALIDASI] Alasan Wajib Diisi
+            $request->validate([
+                'reason' => 'required|string|min:5'
+            ]);
+
+            // Update Status
+            $ticket->update(['status' => 'cancelled']);
+
+            // Catat History dengan Alasan
+            WorkOrderGaHistory::create([
+                'work_order_id' => $ticket->id,
+                'user_id' => $user->id,
+                'action' => 'Rejected by GA',
+                'description' => 'Tiket ditolak. Alasan: ' . $request->reason
+            ]);
+
+            DB::commit();
+
+            return redirect()->back()->with('success', 'Tiket berhasil ditolak.');
+        } catch (\Exception $e) {
+            DB::rollback();
+            return redirect()->back()->with('error', 'Gagal: ' . $e->getMessage());
+        }
+    }
 
     // --- 3. HALAMAN DASHBOARD (STATISTIK) ---
     public function dashboard(Request $request)
     {
-        if (Auth::user()->role !== 'ga.admin') {
-            abort(403, 'Akses Ditolak.');
+        if (Auth::check() && Auth::user()->role !== 'ga.admin') {
+            abort(403, 'Akses Ditolak. Dashboard hanya untuk Admin atau Tamu.');
         }
 
         // --- 1. QUERY UTAMA ---
@@ -286,149 +514,123 @@ class GeneralAffairController extends Controller
     // --- 5. STORE DATA ---
     public function store(Request $request)
     {
+        // 1. VALIDASI DATA MASUK
+        // Pastikan nama field ini sama persis dengan name="" di HTML form Anda
         $request->validate([
-            // Validasi Input Nama Baru
-            'manual_requester_name' => 'required|string|max:255',
-
-            'plant_id' => 'required',
-            'department' => 'required',
-            'description' => 'required',
-            'category' => 'required',
-            'parameter_permintaan' => 'required',
-            'photo' => 'nullable|image|max:5120'
+            'requester_nik' => 'required',
+            'plant_id'      => 'required', // Input form namanya plant_id
+            'department'    => 'required', // Input form target dept
+            'description'   => 'required',
+            'category'      => 'required',
         ]);
 
-        $plantData = Plant::find($request->plant_id);
-        $plantName = $plantData ? $plantData->name : 'Unknown Plant';
+        try {
+            DB::beginTransaction();
 
-        $photoPath = null;
-        if ($request->hasFile('photo')) {
-            $photoPath = $request->file('photo')->store('wo_ga', 'public');
+            // 2. LOGIKA CARI DATA PELAPOR
+            // Cari data di master employee berdasarkan NIK
+            $employee = \App\Models\Employee::where('nik', $request->requester_nik)->first();
+
+            // Tentukan Nama & Dept Pelapor (Prioritas: Master DB -> Input Form -> Default)
+            $fixName = $employee?->name ?? $request->requester_name ?? 'Tanpa Nama';
+            $fixDept = $employee?->department ?? $request->requester_department ?? '-';
+
+            // 3. SIMPAN KE DATABASE
+            WorkOrderGeneralAffair::create([
+                // Generate Nomor Tiket
+                'ticket_num' => $this->generateTicketNum(),
+
+                // Data User Login
+                'requester_id' => Auth::id(),
+
+                // Data Pelapor (Hasil Logika Diatas)
+                'requester_nik'        => $request->requester_nik,
+                'requester_name'       => $fixName,
+                'requester_department' => $fixDept,
+
+                // Data Tiket (Mapping Input Form -> Kolom Database)
+                'plant'                => $request->plant_id, // Form: plant_id -> DB: plant
+                'department'           => $request->department, // Dept Tujuan (IT/GA/dll)
+                'category'             => $request->category,
+                'description'          => $request->description,
+                'parameter_permintaan' => $request->parameter_permintaan,
+                'status_permintaan'    => $request->status_permintaan ?? 'OPEN',
+                'target_completion_date' => $request->target_completion_date,
+
+                // Status Awal
+                'status' => 'waiting_spv',
+
+                // Upload Foto
+                'photo_path' => $request->hasFile('photo')
+                    ? $request->file('photo')->store('wo_ga', 'public')
+                    : null,
+            ]);
+
+            DB::commit();
+            return redirect()->back()->with('success', 'Tiket berhasil dibuat.');
+        } catch (\Exception $e) {
+            DB::rollback();
+            // Jika error, akan tampil dilayar agar ketahuan penyebabnya
+            dd([
+                'STATUS' => 'GAGAL MENYIMPAN',
+                'ERROR' => $e->getMessage(),
+                'LINE' => $e->getLine()
+            ]);
         }
-
-        // Generate Nomor Tiket
-        $dateCode = date('Ymd');
-        $prefix = 'woGA-' . $dateCode . '-';
-        $lastTicket = WorkOrderGeneralAffair::where('ticket_num', 'like', $prefix . '%')->orderBy('id', 'desc')->first();
-        $newSequence  = $lastTicket ? ((int) substr($lastTicket->ticket_num, -3) + 1) : 1;
-        $ticketNum = $prefix . sprintf('%03d', $newSequence);
-
-        // --- SIMPAN DATA ---
-        $ticket = WorkOrderGeneralAffair::create([
-            'ticket_num' => $ticketNum,
-
-            // 1. Requester ID tetap ambil dari akun yang login (untuk trace akun mana yang pakai)
-            'requester_id' => Auth::id(),
-
-            // 2. Requester Name DIUBAH: Ambil dari Input Manual
-            'requester_name' => $request->manual_requester_name,
-
-            'plant' => $plantName,
-            'department' => $request->department,
-            'description' => $request->description,
-            'category' => $request->category,
-            'parameter_permintaan' => $request->parameter_permintaan,
-            'status' => 'pending',
-            'status_permintaan' => $request->status_permintaan,
-            'photo_path' => $photoPath,
-        ]);
-
-        WorkOrderGaHistory::create([
-            'work_order_id' => $ticket->id,
-            'user_id' => Auth::id(),
-            'action' => 'Created',
-            // Update deskripsi history agar mencatat nama inputan juga
-            'description' => 'Tiket dibuat atas nama: ' . $request->manual_requester_name
-        ]);
-
-        return redirect()->route('ga.index')->with('success', 'Permintaan berhasil dibuat!');
     }
+
 
     // --- 6. UPDATE STATUS ---
     public function updateStatus(Request $request, $id)
     {
-        if (!in_array(auth()->user()->role, ['ga.admin'])) {
-            abort(403, 'Anda tidak memiliki akses.');
-        }
-        $user = auth()->user();
-        $ticket = WorkOrderGeneralAffair::findOrFail($id);
-        $oldStatus = $ticket->status;
+        try {
+            $ticket = WorkOrderGeneralAffair::findOrFail($id);
 
-        $request->validate([
-            'admin_name' => 'required|string|max:255'
-        ]);
+            // Validasi Dasar
+            $request->validate([
+                'status' => 'required',
+                'processed_by_name' => 'required|string',
+            ]);
 
-        if ($ticket->status == 'pending') {
-            if ($request->action == 'decline') {
-                $ticket->status = 'cancelled';
-                $ticket->processed_by = $user->id;
-                $ticket->processed_by_name = $request->admin_name;
-                $ticket->save();
+            $dataToUpdate = [
+                'status' => $request->status,
+                'processed_by_name' => $request->processed_by_name, // Update nama PIC jika berubah
+            ];
 
-                WorkOrderGaHistory::create([
-                    'work_order_id' => $ticket->id,
-                    'user_id' => $user->id,
-                    'action' => 'Declined',
-                    'description' => 'Permintaan ditolak oleh ' . $request->admin_name . '.',
-                ]);
-
-                return redirect()->route('ga.index')->with('error', 'Permintaan telah di tolak.');
+            // 1. Jika Ganti Department
+            if ($request->filled('department')) {
+                $dataToUpdate['department'] = $request->department;
             }
-            if ($request->action == 'accept') {
-                $request->validate([
-                    'category' => 'required',
-                    'target_date' => 'required|date',
-                ]);
-                $ticket->status = 'in_progress';
-                $ticket->category = $request->category;
-                $ticket->target_completion_date = $request->target_date;
-                $ticket->processed_by = $user->id;
-                $ticket->processed_by_name = $request->admin_name;
-                $ticket->save();
 
-                WorkOrderGaHistory::create([
-                    'work_order_id' => $ticket->id,
-                    'user_id' => $user->id,
-                    'action' => 'Accepted',
-                    'description' => "Permintaan diterima. Target: {$request->target_date}. Kategori: {$request->category}.",
-                ]);
-                return redirect()->route('ga.index')->with('success', 'Permintaan berhasil diterima dan akan di proses.');
+            // 2. Jika Status Completed (Wajib Foto)
+            if ($request->status === 'completed') {
+                $request->validate(['completion_photo' => 'required|image|max:5120']);
+                if ($request->hasFile('completion_photo')) {
+                    $dataToUpdate['photo_completed_path'] = $request->file('completion_photo')->store('wo_ga_completed', 'public');
+                    $dataToUpdate['completed_at'] = now(); // Catat waktu selesai
+                }
             }
-        }
 
-        $request->validate([
-            'status' => 'required',
-            'completion_photo' => 'nullable|image|max:5120'
-        ]);
-
-        $ticket->status = $request->status;
-
-        if ($request->filled('department')) {
-            $ticket->department = $request->department;
-        }
-
-        if ($request->status === 'completed') {
-            $ticket->actual_completion_date = now()->toDateString();
-            if ($request->hasFile('completion_photo')) {
-                $photoPath = $request->file('completion_photo')->store('wo_ga_completed', 'public');
-                $ticket->photo_completed_path = $photoPath;
+            // 3. Jika Revisi Tanggal
+            if ($request->filled('target_date')) {
+                $dataToUpdate['target_completion_date'] = $request->target_date;
             }
-        } elseif ($request->filled('target_date')) {
-            $ticket->target_completion_date = $request->target_date;
+
+            // Simpan
+            $ticket->update($dataToUpdate);
+
+            // Catat History
+            WorkOrderGaHistory::create([
+                'work_order_id' => $ticket->id,
+                'user_id' => Auth::id(),
+                'action' => 'Status Update',
+                'description' => 'Status diubah menjadi ' . $request->status . ' oleh ' . $request->processed_by_name
+            ]);
+
+            return redirect()->back()->with('success', 'Progress tiket berhasil diupdate.');
+        } catch (\Exception $e) {
+            return redirect()->back()->with('error', 'Gagal update: ' . $e->getMessage());
         }
-
-        $ticket->processed_by = $user->id;
-        $ticket->processed_by_name = $request->admin_name;
-        $ticket->save();
-
-        WorkOrderGaHistory::create([
-            'work_order_id' => $ticket->id,
-            'user_id' => $user->id,
-            'action' => 'Status Updated',
-            'description' => 'Status diubah dari ' . $oldStatus . ' menjadi ' . $request->status . '.',
-        ]);
-
-        return redirect()->route('ga.index')->with('success', 'Status tiket berhasil diperbarui!');
     }
 
     // --- 7. EXPORT EXCEL ---
