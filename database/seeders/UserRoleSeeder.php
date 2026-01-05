@@ -10,14 +10,14 @@ class UserRoleSeeder extends Seeder
 {
     public function run()
     {
-        // 1. User Umum (Bisa dipakai banyak orang)
+        // 1. User Umum
         User::updateOrCreate(
             ['email' => 'user@jembo.com'],
             [
                 'name' => 'User',
-                'username' => 'user',
+                'nik' => '9999', // Benar
                 'password' => Hash::make('password'),
-                'role' => 'user', // Role USER biasa
+                'role' => 'user',
                 'divisi' => 'General'
             ]
         );
@@ -27,46 +27,47 @@ class UserRoleSeeder extends Seeder
             ['email' => 'ga@jembo.com'],
             [
                 'name' => 'Admin GA',
-                'username' => 'adminga',
+                'nik' => '9001',            // <--- GANTI JADI NIK DUMMY
                 'password' => Hash::make('password'),
-                'role' => 'ga.admin', // Role Admin GA
+                'role' => 'ga.admin',
                 'divisi' => 'General Affair'
             ]
         );
-        //Engineer
+
+        // 3. Engineer Admin
         User::updateOrCreate(
             ['email' => 'engineer@jembo.com'],
             [
                 'name' => 'Admin Engineer',
-                'username' => 'adminengineer',
+                'nik' => '9002',                  // <--- GANTI JADI NIK DUMMY
                 'password' => Hash::make('password'),
                 'role' => 'eng.admin',
                 'divisi' => 'Engineering'
             ]
         );
-        //Facility
+
+        // 4. Facility Admin
         User::updateOrCreate(
             ['email' => 'facility@jembo.com'],
             [
                 'name' => 'Admin Facility',
-                'username' => 'adminfacility',
+                'nik' => '9003',                  // <--- GANTI JADI NIK DUMMY
                 'password' => Hash::make('password'),
                 'role' => 'fh.admin',
                 'divisi' => 'Facility'
             ]
         );
+
+        // 5. Maintenance Admin
         User::updateOrCreate(
             ['email' => 'maintenance@jembo.com'],
             [
                 'name' => 'Admin Maintenance',
-                'username' => 'adminmt',
+                'nik' => '9004',            // <--- GANTI JADI NIK DUMMY
                 'password' => Hash::make('password'),
                 'role' => 'mt.admin',
                 'divisi' => 'Maintenance'
             ]
         );
-
-
-        // ... Buat juga untuk mt.admin, eng.admin, fh.admin sesuai kebutuhan
     }
 }

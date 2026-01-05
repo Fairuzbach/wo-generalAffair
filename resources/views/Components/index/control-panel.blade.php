@@ -55,7 +55,7 @@
                 </a>
 
                 {{-- Admin Stats --}}
-                @if (auth()->user()->role === 'ga.admin')
+                @if (Auth::check() && Auth::user()->role !== 'ga.admin')
                     <a href="{{ route('ga.dashboard') }}"
                         class="flex items-center justify-center w-10 h-10 border-2 border-slate-900 text-slate-900 hover:bg-slate-900 hover:text-yellow-400 bg-white rounded-sm transition-all"
                         title="Dashboard">
@@ -84,7 +84,7 @@
             <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                 {{-- Filter Item Wrapper --}}
                 {{-- Filter Item Wrapper --}}
-                @foreach (['status' => ['pending', 'in_progress', 'completed', 'cancelled'], 'category' => ['BERAT', 'SEDANG', 'RINGAN'], 'parameter' => ['KEBERSIHAN', 'PEMELIHARAAN', 'PERBAIKAN', 'PEMBUATAN BARU', 'PERIZINAN', 'RESERVASI']] as $key => $opts)
+                @foreach (['status' => ['pending', 'in_progress', 'completed', 'cancelled', 'waiting_spv'], 'category' => ['BERAT', 'SEDANG', 'RINGAN'], 'parameter' => ['KEBERSIHAN', 'PEMELIHARAAN', 'PERBAIKAN', 'PEMBUATAN BARU', 'PERIZINAN', 'RESERVASI']] as $key => $opts)
                     <div>
                         <label
                             class="text-[10px] font-black text-slate-500 uppercase block mb-1 tracking-wider">{{ ucfirst($key) }}</label>

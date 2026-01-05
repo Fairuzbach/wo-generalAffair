@@ -16,17 +16,25 @@ class WorkOrderGeneralAffair extends Model
     protected $fillable = [
         'ticket_num',
         'requester_id',
+        'requester_nik',
         'requester_name',
+        'requester_department', // <--- Pastikan ini ada!
         'plant',
         'department',
-        'description',
         'category',
+        'description',
         'parameter_permintaan',
-        'status',
         'status_permintaan',
+        'rejection_reason',
         'target_completion_date',
-        'actual_completion_date',
+        'status',
         'photo_path',
+        'photo_completed_path',
+        'processed_by',
+        'processed_by_name',
+        'processed_at',
+        'completed_at',
+        'rejected_at'
     ];
 
     public function user()
@@ -41,5 +49,10 @@ class WorkOrderGeneralAffair extends Model
     public function histories()
     {
         return $this->hasMany(WorkOrderGaHistory::class, 'work_order_id')->latest();
+    }
+
+    public function plantInfo()
+    {
+        return $this->belongsTo(\App\Models\Engineering\Plant::class, 'plant');
     }
 }
