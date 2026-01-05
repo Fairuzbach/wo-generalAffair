@@ -1,7 +1,6 @@
-// resources/js/ga.js
+// resources/js/general-affair.js
 
 document.addEventListener('alpine:init', () => {
-    // Ambil konfigurasi dari window object
     const config = window.gaConfig || {};
 
     Alpine.data('gaData', () => ({
@@ -10,16 +9,23 @@ document.addEventListener('alpine:init', () => {
         showCreateModal: false,
         showConfirmModal: false,
         showEditModal: false,
-        showAcceptModal:false,
-        showRejectModal:false,
+        showAcceptModal: false,
+        showRejectModal: false,
         show: false,
 
-        acceptId:'',
-        rejectId:'',
+        acceptId: '',
+        rejectId: '',
 
         // Data Selection
         selected: JSON.parse(localStorage.getItem('ga_selected_ids') || '[]').map(String),
         pageIds: (config.pageIds || []).map(String),
+
+        // Current User Data (untuk reset ke saya)
+        currentUser: {
+            nik: window.gaConfig?.userNik || '',
+            name: window.gaConfig?.userName || '',
+            department: window.gaConfig?.userDept || ''
+        },
 
         // --- MAPPING LOKASI KE DEPARTMENT ---
         locationMap: {
@@ -52,126 +58,117 @@ document.addEventListener('alpine:init', () => {
         },
 
         // Form Data
-        form: { 
-            plant: '', 
-            plant_name: '', 
-            department: '', 
-            category: 'RINGAN', 
-            description: '', 
-            file_name: '', 
-            parameter_permintaan: '', 
-            status_permintaan: '' 
-        },
-        editForm: { 
-            id: '', 
-            ticket_num: '', 
-            status: '', 
-            photo_path: '', 
-            target_date: '', 
-            actual_date: '' 
+        formData: {
+            nik: '',
+            manual_requester_name: '',
+            department: '',
+            plant_id: '',
+            category: 'RINGAN',
+            description: '',
+            parameter_permintaan: '',
+            status_permintaan: 'OPEN'
         },
 
-        // --- DATA HOLDER & TIME ---
+        editForm: {
+            id: '',
+            ticket_num: '',
+            status: '',
+            photo_path: '',
+            target_date: '',
+            actual_date: ''
+        },
+
+        // --- DATA HOLDER ---
         ticket: null,
-        currentDate: '',
-        currentTime: '',
+        isChecking: false,
 
-        // Getters
-        get selectedTickets() { return this.selected; },
-
-        // Methods
+        // --- METHODS ---
         init() {
-            this.updateTime();
-            setInterval(() => this.updateTime(), 60000);
-            
-            // Animasi masuk
             setTimeout(() => this.show = true, 100);
+            this.resetToMe();
 
-            // Watchers
-            this.$watch('showCreateModal', (v) => {
-                if (!v) {
-                    this.form.plant = '';
-                    this.form.plant_name = '';
-                    this.form.department = '';
-                    this.form.category = 'RINGAN';
-                    this.form.description = '';
-                    this.form.file_name = '';
-                }
-            });
-
-            // Initialize Flatpickr for edit modal if needed
-            this.$watch('showEditModal', (value) => {
-                if (value) {
-                    setTimeout(() => {
-                        if (typeof flatpickr !== 'undefined') {
-                            document.querySelectorAll('.date-picker').forEach(el => {
-                                flatpickr(el, { dateFormat: 'Y-m-d', minDate: 'today', allowInput: true });
-                            });
-                        }
-                    }, 100);
-                }
+            // Auto Listen to event dari tabel (Dispatch method)
+            window.addEventListener('buka-detail', (e) => {
+                this.openDetail(e.detail);
             });
         },
 
-        updateTime() {
-            const now = new Date();
-            this.currentDate = now.toISOString().split('T')[0];
-            this.currentTime = now.toTimeString().split(' ')[0].substring(0, 5);
-        },
-
-        toggleSelectAll() {
-            const allSelected = this.pageIds.every(id => this.selected.includes(id));
-            if (allSelected) { 
-                this.selected = this.selected.filter(id => !this.pageIds.includes(id)); 
-            } else { 
-                this.pageIds.forEach(id => { 
-                    if (!this.selected.includes(id)) this.selected.push(id); 
-                }); 
+        // FUNGSI DETAIL (PENTING: Gunakan Base64 untuk handle karakter enter)
+        openDetail(encodedData) {
+            if (!encodedData) return;
+            try {
+                // Decode base64 dan parse ke JSON
+                const ticketData = JSON.parse(atob(encodedData));
+                this.ticket = ticketData;
+                this.showDetailModal = true;
+                console.log('Ticket detail loaded:', this.ticket);
+            } catch (error) {
+                console.error('Error parsing ticket detail:', error);
+                Swal.fire('Error', 'Gagal memuat detail data.', 'error');
             }
-            // Save to localStorage if needed
-            localStorage.setItem('ga_selected_ids', JSON.stringify(this.selected));
         },
 
-        clearSelection() {
-            this.selected = [];
-            localStorage.removeItem('ga_selected_ids');
+        resetToMe() {
+            this.formData.nik = this.currentUser.nik;
+            this.formData.manual_requester_name = this.currentUser.name;
+            this.formData.department = this.currentUser.department;
+        },
+
+        async checkNik() {
+            if (!this.formData.nik) { this.resetToMe(); return; }
+            if (this.formData.nik === this.currentUser.nik) { this.resetToMe(); return; }
+
+            this.isChecking = true;
+            try {
+                const response = await fetch(`/ga/check-employee?nik=${this.formData.nik}`);
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    this.formData.manual_requester_name = result.data.name;
+                    this.formData.department = result.data.department;
+                    
+                    Swal.fire({
+                        toast: true, position: 'top-end', icon: 'success',
+                        title: 'Data Ditemukan', showConfirmButton: false, timer: 2000
+                    });
+                } else {
+                    this.formData.manual_requester_name = '';
+                    this.formData.department = '';
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'NIK Tidak Ditemukan!',
+                        html: `<div class="text-slate-600">Maaf, NIK <b>${this.formData.nik}</b> tidak terdaftar.</div>`,
+                        confirmButtonColor: '#0f172a'
+                    });
+                }
+            } catch (e) { console.error(e); } 
+            finally { this.isChecking = false; }
         },
 
         updateDepartment() {
             let select = document.getElementById('plantSelect');
             if (select) {
                 let selectedOption = select.options[select.selectedIndex];
-                let selectedText = selectedOption.text;
-                this.form.plant_name = selectedText;
-                if (this.locationMap[selectedText]) { 
-                    this.form.department = this.locationMap[selectedText]; 
+                let selectedText = selectedOption.text.trim();
+                if (this.locationMap[selectedText]) {
+                    this.formData.department = this.locationMap[selectedText];
                 }
             }
         },
 
-        handleFile(e) { 
-            this.form.file_name = e.target.files[0] ? e.target.files[0].name : ''; 
-        },
+        openAcceptModal(id) { this.acceptId = id; this.showAcceptModal = true; },
+        openRejectModal(id) { this.rejectId = id; this.showRejectModal = true; },
 
-        submitForm() { 
-            // Menggunakan $refs dari elemen HTML terkait
-            const form = document.querySelector('form[x-ref="createForm"]'); 
-            if(form && form.reportValidity()) {
-                form.submit();
+        toggleSelectAll() {
+            const allSelected = this.pageIds.every(id => this.selected.includes(id));
+            if (allSelected) {
+                this.selected = this.selected.filter(id => !this.pageIds.includes(id));
             } else {
-                this.showConfirmModal = false; 
+                this.pageIds.forEach(id => {
+                    if (!this.selected.includes(id)) this.selected.push(id);
+                });
             }
-        },
-
-        openEditModal(data) {
-            this.ticket = data;
-            this.editForm.id = data.id;
-            this.editForm.ticket_num = data.ticket_num;
-            this.editForm.status = data.status;
-            this.editForm.category = data.category;
-            this.editForm.target_date = data.target_completion_date || '';
-            this.editForm.photo_path = data.photo_path;
-            this.showEditModal = true;
+            localStorage.setItem('ga_selected_ids', JSON.stringify(this.selected));
         }
     }));
 });
@@ -179,7 +176,7 @@ document.addEventListener('alpine:init', () => {
 // Flatpickr Range Init
 document.addEventListener('DOMContentLoaded', function() {
     const pickerInput = document.getElementById("date_range_picker");
-    const config = window.gaConfig || {}; // Ambil config lagi untuk default date
+    const config = window.gaConfig || {};
 
     if (pickerInput && typeof flatpickr !== 'undefined') {
         flatpickr(pickerInput, {
@@ -187,26 +184,13 @@ document.addEventListener('DOMContentLoaded', function() {
             dateFormat: "Y-m-d",
             altInput: true,
             altFormat: "j F Y",
-            defaultDate: [config.startDate, config.endDate], // Dari config
-            onChange: function(selectedDates, dateStr, instance) {
+            defaultDate: [config.startDate, config.endDate],
+            onChange: function(selectedDates) {
                 if (selectedDates.length === 2) {
-                    const offset = selectedDates[0].getTimezoneOffset();
-                    const startDate = new Date(selectedDates[0].getTime() - (offset * 60 * 1000)).toISOString().split('T')[0];
-                    const endDate = new Date(selectedDates[1].getTime() - (offset * 60 * 1000)).toISOString().split('T')[0];
-                    
-                    const startInput = document.getElementById('start_date');
-                    const endInput = document.getElementById('end_date');
-                    
-                    if(startInput) startInput.value = startDate;
-                    if(endInput) endInput.value = endDate;
-                }
-            },
-            onClose: function(selectedDates) {
-                if (selectedDates.length === 0) {
-                    const startInput = document.getElementById('start_date');
-                    const endInput = document.getElementById('end_date');
-                    if(startInput) startInput.value = "";
-                    if(endInput) endInput.value = "";
+                    const start = selectedDates[0].toISOString().split('T')[0];
+                    const end = selectedDates[1].toISOString().split('T')[0];
+                    document.getElementById('start_date').value = start;
+                    document.getElementById('end_date').value = end;
                 }
             }
         });

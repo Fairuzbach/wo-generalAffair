@@ -25,6 +25,7 @@ class WorkOrderGeneralAffair extends Model
         'description',
         'parameter_permintaan',
         'status_permintaan',
+        'rejection_reason',
         'target_completion_date',
         'status',
         'photo_path',
@@ -48,5 +49,10 @@ class WorkOrderGeneralAffair extends Model
     public function histories()
     {
         return $this->hasMany(WorkOrderGaHistory::class, 'work_order_id')->latest();
+    }
+
+    public function plantInfo()
+    {
+        return $this->belongsTo(\App\Models\Engineering\Plant::class, 'plant');
     }
 }

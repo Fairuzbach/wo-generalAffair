@@ -11,9 +11,20 @@
             {{-- Wrapper Utama --}}
             <div class="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden transform transition-all border border-slate-100"
                 x-data="{
+                    // 1. DATA PLANTS (Server Side Data)
+                    plantsData: @js($plants),
+                
+                    // 2. DATA USER LOGIN
+                    currentUser: {
+                        nik: '{{ Auth::user()->nik }}',
+                        name: '{{ Auth::user()->name }}',
+                        dept: '{{ Auth::user()->divisi }}' // <--- SUDAH DIPERBAIKI (Sesuai DB)
+                    },
+                
+                    // 3. FORM DATA
                     formData: {
-                        nik: '',
-                        manual_requester_name: '',
+                        nik: '{{ Auth::user()->nik }}',
+                        manual_requester_name: '{{ Auth::user()->name }}',
                         plant_id: '',
                         department: '',
                         category: 'RINGAN',
@@ -22,20 +33,31 @@
                         target_completion_date: '',
                         description: ''
                     },
-                    plantsData: {{ Js::from($plants) }},
+                
+                    // 4. STATE VARIABLES
+                    // Default dept ambil dari divisi user login
+                    displayDept: '{{ Auth::user()->divisi }}',
                     isChecking: false,
                     isSubmitting: false,
-                    displayDept: '',
+                
+                    // 5. FUNGSI-FUNGSI
+                    resetToMe() {
+                        this.formData.nik = this.currentUser.nik;
+                        this.formData.manual_requester_name = this.currentUser.name;
+                        this.displayDept = this.currentUser.dept;
+                    },
                 
                     updateDepartment() {
                         const selectedPlant = this.plantsData.find(p => p.id == this.formData.plant_id);
                         if (selectedPlant) {
+                            const plantName = selectedPlant.name.trim();
                             const map = {
                                 'Plant A': 'Low Voltage',
                                 'Plant B': 'Medium Voltage',
                                 'Plant C': 'Low Voltage',
                                 'Plant D': 'Medium Voltage',
                                 'Plant E': 'FO',
+                                'Plant F': 'Low Voltage',
                                 'RM 1': 'SC',
                                 'RM 2': 'SC',
                                 'RM 3': 'SC',
@@ -51,49 +73,89 @@
                                 'Workshop Electric': 'MT',
                                 'Gudang Jadi': 'SS',
                                 'Plant Tools': 'PE',
-                                'Planning': 'Planning'
+                                'Planning': 'Planning',
+                                'IT': 'IT',
+                                'GA': 'GA',
+                                'FA': 'FA',
+                                'Marketing': 'Marketing',
+                                'HC': 'HC',
+                                'Sales': 'Sales',
+                                'MT': 'MT',
+                                'SS': 'SS',
+                                'PE': 'PE',
+                                'FH': 'FH',
+                                'FO': 'FO',
+                                'QR': 'QR'
                             };
-                            if (map[selectedPlant.name]) this.formData.department = map[selectedPlant.name];
+                            if (map[plantName]) this.formData.department = map[plantName];
                         }
                     },
                 
                     async checkNik() {
-                        if (!this.formData.nik) return;
+                        let inputNik = this.formData.nik ? this.formData.nik.toString().trim() : '';
+                        if (!inputNik) return;
+                
+                        let myNik = this.currentUser.nik.toString().trim();
+                        if (inputNik === myNik) {
+                            this.resetToMe();
+                            return;
+                        }
+                
                         this.isChecking = true;
                         try {
-                            const response = await axios.post('{{ route('ga.check-employee') }}', { nik: this.formData.nik });
-                            if (response.data.success) {
+                            // Menggunakan axios dengan path manual agar aman dari syntax error blade
+                            const response = await axios.get('/ga/check-employee', {
+                                params: { nik: inputNik }
+                            });
+                
+                            if (response.data.status === 'success') {
                                 this.formData.manual_requester_name = response.data.data.name;
-                                this.displayDept = response.data.data.division;
+                                this.displayDept = response.data.data.department;
+                
                                 Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000 })
-                                    .fire({ icon: 'success', title: 'Ditemukan: ' + this.formData.manual_requester_name });
+                                    .fire({ icon: 'success', title: 'Ditemukan: ' + response.data.data.name });
+                            } else {
+                                throw new Error('Status bukan success');
                             }
                         } catch (e) {
-                            Swal.fire({ toast: true, position: 'top', icon: 'error', title: 'NIK Tidak Ditemukan' });
+                            console.error('Error saat checkNik:', e);
                             this.formData.manual_requester_name = '';
                             this.displayDept = '';
-                        } finally { this.isChecking = false; }
+                            Swal.fire({ toast: true, position: 'top', icon: 'error', title: 'NIK Tidak Ditemukan' });
+                        } finally {
+                            this.isChecking = false;
+                        }
                     },
                 
+                    // --- FUNGSI INI YANG TADI HILANG ---
                     openConfirm() {
+                        // 1. Validasi
+                        if (!this.formData.plant_id || !this.formData.parameter_permintaan || !this.formData.description) {
+                            Swal.fire({
+                                icon: 'warning',
+                                title: 'Data Belum Lengkap',
+                                text: 'Mohon lengkapi Lokasi, Jenis Permintaan, dan Uraian Pekerjaan.'
+                            });
+                            return;
+                        }
+                
+                        // 2. Simpan data ke global variable
                         window.gaFormData = JSON.parse(JSON.stringify(this.formData));
+                
+                        // 3. Panggil Modal Anda (Mengirim Sinyal)
                         $dispatch('open-confirm-modal');
-                        this.showConfirmModal = true;
                     },
-                    handleFile(e) {}
                 }">
 
-                {{-- [FIX] LOADING OVERLAY --}}
+                {{-- LOADING OVERLAY --}}
                 <div x-show="isSubmitting" x-transition:enter="transition ease-out duration-300"
                     x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
                     class="absolute inset-0 z-[100] bg-white/95 backdrop-blur-sm flex flex-col items-center justify-center">
-
                     <div class="flex space-x-3 mb-6">
                         <div class="w-5 h-5 bg-[#1E3A5F] rounded-full animate-bounce [animation-delay:-0.3s]"></div>
                         <div class="w-5 h-5 bg-yellow-500 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
                         <div class="w-5 h-5 bg-[#1E3A5F] rounded-full animate-bounce"></div>
                     </div>
-
                     <h3 class="text-xl font-bold text-slate-800">Mohon Tunggu</h3>
                     <p class="text-slate-500 text-sm mt-1">Sedang membuat tiket Anda...</p>
                 </div>
@@ -115,7 +177,6 @@
                 </div>
 
                 {{-- Body Form --}}
-                {{-- [FIX] setTimeout 500ms agar Loading sempat muncul sebelum browser reload --}}
                 <form x-ref="createForm"
                     @submit-confirmed.window="isSubmitting = true; setTimeout(() => $refs.createForm.submit(), 500)"
                     action="{{ route('ga.store') }}" method="POST" enctype="multipart/form-data">
@@ -123,25 +184,40 @@
 
                     <div class="p-8 space-y-6">
                         {{-- SECTION 1 --}}
-                        <div class="bg-slate-50 p-5 rounded-sm border border-slate-200">
-                            <label
-                                class="block text-xs font-black text-slate-400 uppercase mb-4 tracking-widest">IDENTITAS
-                                PELAPOR</label>
+                        {{-- IDENTITAS PELAPOR --}}
+                        <div class="bg-slate-50 p-5 rounded-sm border border-slate-200 mb-6">
+                            <div class="flex justify-between items-center mb-4">
+                                <label
+                                    class="block text-xs font-black text-slate-400 uppercase tracking-widest">IDENTITAS
+                                    PELAPOR</label>
+
+                                {{-- TOMBOL RESET KE SAYA --}}
+                                {{-- Muncul jika NIK yang diketik beda dengan NIK user login --}}
+                                <button type="button" x-show="formData.nik !== currentUser.nik" @click="resetToMe()"
+                                    class="text-[10px] bg-slate-200 hover:bg-slate-300 text-slate-600 px-2 py-1 rounded font-bold transition-colors flex items-center gap-1">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none"
+                                        viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                    </svg>
+                                    Reset ke Saya
+                                </button>
+                            </div>
 
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {{-- Input NIK --}}
+
+                                {{-- INPUT NIK --}}
                                 <div>
                                     <label class="text-xs font-bold text-slate-700 uppercase mb-1">NIK <span
                                             class="text-red-500">*</span></label>
                                     <div class="relative">
-                                        {{-- [FIX] name="requester_nik" agar terbaca di Controller --}}
                                         <input type="text" name="requester_nik" x-model="formData.nik"
                                             @keydown.enter.prevent="checkNik()" @blur="checkNik()"
-                                            class="w-full border-2 border-slate-300 focus:border-slate-900 rounded-sm text-sm font-bold h-11 placeholder-slate-300"
+                                            class="w-full border-2 border-slate-300 focus:border-slate-900 rounded-sm text-sm font-bold h-11 placeholder-slate-300 px-3"
                                             placeholder="Ketik NIK..." required>
 
                                         {{-- Loading Spinner --}}
-                                        <div x-show="isChecking" class="absolute right-3 top-3">
+                                        <div x-show="isChecking" class="absolute right-3 top-3" style="display: none;">
                                             <svg class="animate-spin h-5 w-5 text-slate-900" viewBox="0 0 24 24">
                                                 <circle class="opacity-25" cx="12" cy="12" r="10"
                                                     stroke="currentColor" stroke-width="4"></circle>
@@ -151,32 +227,29 @@
                                             </svg>
                                         </div>
                                     </div>
-                                    <p class="text-[10px] text-slate-400 mt-1">Tekan Enter untuk cari data</p>
+                                    <p class="text-[10px] text-slate-400 mt-1">Ganti NIK jika melapor untuk orang lain
+                                    </p>
                                 </div>
 
-                                {{-- Input Nama --}}
+                                {{-- INPUT NAMA & DEPT (GABUNGAN) --}}
                                 <div>
                                     <label class="text-xs font-bold text-slate-700 uppercase mb-1">Nama & Dept</label>
 
-                                    {{-- Visual Display (Gabungan Nama - Dept) --}}
+                                    {{-- Visual Display (Readonly) --}}
                                     <input type="text"
                                         :value="formData.manual_requester_name ? (formData.manual_requester_name + ' - ' +
                                             displayDept) : '-'"
                                         readonly
-                                        class="w-full bg-slate-200 border-2 border-slate-200 text-slate-500 font-bold text-sm h-11 cursor-not-allowed mb-2">
+                                        class="w-full bg-slate-200 border-2 border-slate-200 text-slate-500 font-bold text-sm h-11 px-3 cursor-not-allowed mb-2 focus:outline-none">
 
-                                    {{-- [FIX] Hidden Input yang BENAR untuk dikirim ke Controller --}}
-                                    {{-- name="requester_name" (bukan manual_requester_name) --}}
+                                    {{-- HIDDEN INPUTS (Dikirim ke Controller) --}}
                                     <input type="hidden" name="requester_name" :value="formData.manual_requester_name">
-
-                                    {{-- [FIX] Hidden Input untuk Departemen Pelapor --}}
-                                    {{-- Agar kolom requester_department di database terisi otomatis --}}
                                     <input type="hidden" name="requester_department" :value="displayDept">
                                 </div>
                             </div>
                         </div>
 
-                        {{-- SECTION 2 --}}
+                        {{-- SECTION 2: AREA KERJA --}}
                         <div class="bg-slate-50 p-5 rounded-sm border border-slate-200 mt-6">
                             <label class="block text-xs font-black text-slate-400 uppercase mb-4 tracking-widest">Target
                                 Area Kerja</label>
@@ -220,7 +293,7 @@
                             </div>
                         </div>
 
-                        {{-- SECTION 3 --}}
+                        {{-- SECTION 3: DETAIL --}}
                         <div class="grid grid-cols-2 gap-4 mt-6">
                             <div>
                                 <label class="text-xs font-bold text-slate-700 uppercase mb-1">Target Selesai

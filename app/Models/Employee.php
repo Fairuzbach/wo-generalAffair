@@ -14,4 +14,8 @@ class Employee extends Model
 
     // Mengizinkan semua kolom diisi (mass assignment)
     protected $guarded = ['id'];
+
+    protected $primaryKey = 'nik';
+    public $incrementing = false; // Karena NIK bukan auto-increment integer
+    protected $keyType = 'string';
 }
