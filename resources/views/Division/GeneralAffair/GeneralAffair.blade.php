@@ -44,19 +44,24 @@
     {{-- LOAD LIBRARY --}}
     <script src="https://cdn.jsdelivr.net/npm/@alpinejs/collapse@3.x.x/dist/cdn.min.js" defer></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-    @vite(['resources/css/general-affair.css', 'resources/js/general-affair.js'])
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
+    @vite(['resources/css/general-affair.css', 'resources/js/general-affair.js'])
     <script>
         window.gaConfig = {
             pageIds: @json($pageIds ?? []),
             startDate: "{{ request('start_date') }}",
             endDate: "{{ request('end_date') }}",
-            // TAMBAHKAN INI:
             userNik: "{{ Auth::user()->nik }}",
             userName: "{{ Auth::user()->name }}",
-            userDept: "{{ Auth::user()->divisi }}"
+            userDept: "{{ Auth::user()->divisi }}",
+
+            // TAMBAHAN BARU: Kirim Pesan Session ke JS
+            flash: {
+                success: "{{ session('success') }}",
+                error: "{{ session('error') }}"
+            }
         };
     </script>
 
@@ -67,7 +72,8 @@
         <div class="max-w-[95%] mx-auto px-4 sm:px-6 lg:px-8">
 
             {{-- 1. STATISTIK --}}
-            <x-index.stats-card :countTotal="$countTotal" :countPending="$countPending" :countInProgress="$countInProgress" :countCompleted="$countCompleted" />
+            <x-index.stats-card :countTotal="$countTotal" :countPending="$countPending" :countInProgress="$countInProgress" :countCompleted="$countCompleted"
+                :countWaitingApproval="$countWaitingApproval" />
 
             {{-- 2. CONTROL PANEL --}}
             <x-index.control-panel :filterOptions="[
@@ -144,162 +150,4 @@
 
         </div> {{-- End max-w container --}}
     </div> {{-- AKHIR DIV x-data="gaData" --}}
-
-    {{-- SCRIPTS --}}
-    <script>
-        document.addEventListener('alpine:init', () => {
-            Alpine.data('gaData', () => ({
-                // DATA USER LOGIN
-                currentUser: {
-                    nik: "{{ Auth::user()->nik ?? '' }}",
-                    name: "{{ Auth::user()->name ?? '' }}",
-                    department: "{{ Auth::user()->divisi ?? '' }}"
-                },
-
-                // STATE FORM CREATE
-                formData: {
-                    nik: "{{ Auth::user()->nik ?? '' }}",
-                    manual_requester_name: "{{ Auth::user()->name ?? '' }}",
-                    plant_id: '',
-                    department: "{{ Auth::user()->divisi ?? '' }}",
-                    category: 'RINGAN',
-                    parameter_permintaan: '',
-                    status_permintaan: 'OPEN',
-                    target_completion_date: '',
-                    description: ''
-                },
-
-                plantsData: @json($plants),
-                isChecking: false,
-                showCreateModal: false,
-                showDetailModal: false,
-                ticket: null, // Variabel penting untuk modal detail
-                showAcceptModal: false,
-                acceptId: null,
-                showRejectModal: false,
-                rejectId: null,
-
-                get displayDept() {
-                    return this.formData.department || '-';
-                },
-
-                init() {
-                    this.resetToMe();
-                },
-
-                // FUNGSI UTAMA: BUKA DETAIL (Gunakan Base64 untuk keamanan data)
-                openDetail(encodedData) {
-                    if (!encodedData) return;
-                    try {
-                        // Decode dan Parse
-                        const ticketData = JSON.parse(atob(encodedData));
-
-                        // Masukkan ke state
-                        this.ticket = ticketData;
-                        this.showDetailModal = true;
-
-                        console.log('Detail Modal Terbuka:', this.ticket);
-                    } catch (error) {
-                        console.error('Error parsing detail:', error);
-                    }
-                },
-
-                resetToMe() {
-                    this.formData.nik = this.currentUser.nik;
-                    this.formData.manual_requester_name = this.currentUser.name;
-                    this.formData.department = this.currentUser.department;
-                },
-
-                async checkNik() {
-                    if (!this.formData.nik || this.formData.nik === this.currentUser.nik) {
-                        this.resetToMe();
-                        return;
-                    }
-
-                    this.isChecking = true;
-                    try {
-                        const response = await fetch(`/ga/check-employee?nik=${this.formData.nik}`);
-                        const result = await response.json();
-
-                        if (result.status === 'success') {
-                            this.formData.manual_requester_name = result.data.name;
-                            this.formData.department = result.data.department;
-                            Swal.fire({
-                                toast: true,
-                                position: 'top-end',
-                                icon: 'success',
-                                title: 'Data Ditemukan',
-                                showConfirmButton: false,
-                                timer: 2000
-                            });
-                        } else {
-                            this.formData.manual_requester_name = '';
-                            this.formData.department = '';
-                            Swal.fire({
-                                icon: 'error',
-                                title: 'NIK Tidak Ditemukan!',
-                                html: `<div class="text-slate-600">Maaf, NIK <b>${this.formData.nik}</b> tidak terdaftar.</div>`,
-                                confirmButtonColor: '#0f172a'
-                            });
-                        }
-                    } catch (e) {
-                        console.error(e);
-                    } finally {
-                        this.isChecking = false;
-                    }
-                },
-
-                // Modal Helpers
-                openAcceptModal(id) {
-                    this.acceptId = id;
-                    this.showAcceptModal = true;
-                },
-                openRejectModal(id) {
-                    this.rejectId = id;
-                    this.showRejectModal = true;
-                }
-            }));
-        });
-
-        // SweetAlert Handler untuk tombol Engineer di Tabel
-        function confirmTechnicalAction(id, type) {
-            const isApprove = type === 'approve';
-            Swal.fire({
-                title: isApprove ? 'Setujui Tiket?' : 'Tolak Tiket?',
-                text: isApprove ? 'Tiket akan diteruskan ke tim GA.' : 'Tiket akan dikembalikan ke user.',
-                icon: isApprove ? 'question' : 'warning',
-                showCancelButton: true,
-                confirmButtonColor: isApprove ? '#059669' : '#e11d48',
-                confirmButtonText: isApprove ? 'Ya, Approve!' : 'Ya, Tolak!',
-                cancelButtonText: 'Batal'
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    document.getElementById('input-action-' + id).value = type;
-                    document.getElementById('form-tech-' + id).submit();
-                }
-            });
-        }
-    </script>
-
-    {{-- SESSION MESSAGES --}}
-    @if (session('success'))
-        <script>
-            Swal.fire({
-                title: 'Berhasil!',
-                text: "{{ session('success') }}",
-                icon: 'success',
-                confirmButtonColor: '#dc2626'
-            });
-        </script>
-    @endif
-    @if (session('error'))
-        <script>
-            Swal.fire({
-                title: 'Gagal!',
-                text: "{{ session('error') }}",
-                icon: 'error',
-                confirmButtonColor: '#d33'
-            });
-        </script>
-    @endif
 </x-app-layout>

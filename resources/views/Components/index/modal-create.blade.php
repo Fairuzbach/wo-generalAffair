@@ -11,22 +11,25 @@
             {{-- Wrapper Utama --}}
             <div class="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden transform transition-all border border-slate-100"
                 x-data="{
-                    // 1. DATA PLANTS (Server Side Data)
+                    // 1. DATA PLANTS (Server Side)
                     plantsData: @js($plants),
                 
                     // 2. DATA USER LOGIN
                     currentUser: {
                         nik: '{{ Auth::user()->nik }}',
                         name: '{{ Auth::user()->name }}',
-                        dept: '{{ Auth::user()->divisi }}' // <--- SUDAH DIPERBAIKI (Sesuai DB)
+                        dept: '{{ Auth::user()->divisi }}',
+                        plant_id: '{{ Auth::user()->plant_id }}' // Tambahkan Plant ID user login
                     },
                 
                     // 3. FORM DATA
                     formData: {
                         nik: '{{ Auth::user()->nik }}',
                         manual_requester_name: '{{ Auth::user()->name }}',
-                        plant_id: '',
-                        department: '',
+                        // Default Plant diambil dari user login / old input
+                        plant_id: '{{ old('plant_id', Auth::user()->plant_id) }}',
+                        // Default Dept diambil dari user login / old input
+                        department: '{{ old('department', Auth::user()->divisi) }}',
                         category: 'RINGAN',
                         parameter_permintaan: '',
                         status_permintaan: 'OPEN',
@@ -35,60 +38,58 @@
                     },
                 
                     // 4. STATE VARIABLES
-                    // Default dept ambil dari divisi user login
-                    displayDept: '{{ Auth::user()->divisi }}',
+                    displayDept: '{{ Auth::user()->divisi }}', // Untuk tampilan Readonly
+                    departments: [], // Array Dinamis Department
                     isChecking: false,
                     isSubmitting: false,
+                    isLoadingDept: false,
                 
-                    // 5. FUNGSI-FUNGSI
+                    // 5. INITIALIZATION (Load dept saat pertama kali buka)
+                    init() {
+                        if (this.formData.plant_id) {
+                            this.fetchDepartments(this.formData.plant_id, true);
+                        }
+                    },
+                
+                    // 6. FUNGSI-FUNGSI
                     resetToMe() {
                         this.formData.nik = this.currentUser.nik;
                         this.formData.manual_requester_name = this.currentUser.name;
                         this.displayDept = this.currentUser.dept;
+                        this.formData.department = this.currentUser.dept;
+                        this.formData.plant_id = this.currentUser.plant_id;
+                        this.fetchDepartments(this.currentUser.plant_id, true);
                     },
                 
-                    updateDepartment() {
-                        const selectedPlant = this.plantsData.find(p => p.id == this.formData.plant_id);
-                        if (selectedPlant) {
-                            const plantName = selectedPlant.name.trim();
-                            const map = {
-                                'Plant A': 'Low Voltage',
-                                'Plant B': 'Medium Voltage',
-                                'Plant C': 'Low Voltage',
-                                'Plant D': 'Medium Voltage',
-                                'Plant E': 'FO',
-                                'Plant F': 'Low Voltage',
-                                'RM 1': 'SC',
-                                'RM 2': 'SC',
-                                'RM 3': 'SC',
-                                'RM 5': 'SC',
-                                'RM Office': 'SC',
-                                'QC FO': 'QR',
-                                'QC LAB': 'QR',
-                                'QC LV': 'QR',
-                                'QC MV': 'QR',
-                                'Konstruksi': 'FH',
-                                'MC Cable': 'Low Voltage',
-                                'Autowire': 'Low Voltage',
-                                'Workshop Electric': 'MT',
-                                'Gudang Jadi': 'SS',
-                                'Plant Tools': 'PE',
-                                'Planning': 'Planning',
-                                'IT': 'IT',
-                                'GA': 'GA',
-                                'FA': 'FA',
-                                'Marketing': 'Marketing',
-                                'HC': 'HC',
-                                'Sales': 'Sales',
-                                'MT': 'MT',
-                                'SS': 'SS',
-                                'PE': 'PE',
-                                'FH': 'FH',
-                                'FO': 'FO',
-                                'QR': 'QR'
-                            };
-                            if (map[plantName]) this.formData.department = map[plantName];
+                    // FUNGSI BARU: Ambil Dept via AJAX
+                    async fetchDepartments(plantId, keepSelected = false) {
+                        if (!plantId) {
+                            this.departments = [];
+                            return;
                         }
+                
+                        this.isLoadingDept = true;
+                        try {
+                            // Panggil Route Laravel yang sudah dibuat
+                            const response = await axios.get('/get-departments/' + plantId);
+                            this.departments = response.data; // Ekspektasi: Object/Array {id: 'NamaDept'} atau ['NamaDept']
+                
+                            // Jika tidak keepSelected (artinya user ganti plant manual), reset pilihan dept
+                            if (!keepSelected) {
+                                this.formData.department = '';
+                                this.displayDept = '';
+                            }
+                        } catch (error) {
+                            console.error('Gagal memuat department', error);
+                            Swal.fire({ toast: true, position: 'top', icon: 'error', title: 'Gagal memuat daftar department' });
+                        } finally {
+                            this.isLoadingDept = false;
+                        }
+                    },
+                
+                    // Update tampilan readonly saat dropdown berubah
+                    syncDisplayDept() {
+                        this.displayDept = this.formData.department;
                     },
                 
                     async checkNik() {
@@ -103,13 +104,14 @@
                 
                         this.isChecking = true;
                         try {
-                            // Menggunakan axios dengan path manual agar aman dari syntax error blade
                             const response = await axios.get('/ga/check-employee', {
                                 params: { nik: inputNik }
                             });
                 
                             if (response.data.status === 'success') {
                                 this.formData.manual_requester_name = response.data.data.name;
+                                // Set department di form & display
+                                this.formData.department = response.data.data.department;
                                 this.displayDept = response.data.data.department;
                 
                                 Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000 })
@@ -121,15 +123,14 @@
                             console.error('Error saat checkNik:', e);
                             this.formData.manual_requester_name = '';
                             this.displayDept = '';
+                            this.formData.department = '';
                             Swal.fire({ toast: true, position: 'top', icon: 'error', title: 'NIK Tidak Ditemukan' });
                         } finally {
                             this.isChecking = false;
                         }
                     },
                 
-                    // --- FUNGSI INI YANG TADI HILANG ---
                     openConfirm() {
-                        // 1. Validasi
                         if (!this.formData.plant_id || !this.formData.parameter_permintaan || !this.formData.description) {
                             Swal.fire({
                                 icon: 'warning',
@@ -138,14 +139,11 @@
                             });
                             return;
                         }
-                
-                        // 2. Simpan data ke global variable
                         window.gaFormData = JSON.parse(JSON.stringify(this.formData));
-                
-                        // 3. Panggil Modal Anda (Mengirim Sinyal)
                         $dispatch('open-confirm-modal');
                     },
-                }">
+                }" x-init="init()">
+                {{-- ^^^ PENTING: Panggil init() disini --}}
 
                 {{-- LOADING OVERLAY --}}
                 <div x-show="isSubmitting" x-transition:enter="transition ease-out duration-300"
@@ -183,16 +181,13 @@
                     @csrf
 
                     <div class="p-8 space-y-6">
-                        {{-- SECTION 1 --}}
-                        {{-- IDENTITAS PELAPOR --}}
+
+                        {{-- SECTION 1: IDENTITAS (Sama seperti sebelumnya) --}}
                         <div class="bg-slate-50 p-5 rounded-sm border border-slate-200 mb-6">
                             <div class="flex justify-between items-center mb-4">
                                 <label
                                     class="block text-xs font-black text-slate-400 uppercase tracking-widest">IDENTITAS
                                     PELAPOR</label>
-
-                                {{-- TOMBOL RESET KE SAYA --}}
-                                {{-- Muncul jika NIK yang diketik beda dengan NIK user login --}}
                                 <button type="button" x-show="formData.nik !== currentUser.nik" @click="resetToMe()"
                                     class="text-[10px] bg-slate-200 hover:bg-slate-300 text-slate-600 px-2 py-1 rounded font-bold transition-colors flex items-center gap-1">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none"
@@ -205,7 +200,6 @@
                             </div>
 
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-
                                 {{-- INPUT NIK --}}
                                 <div>
                                     <label class="text-xs font-bold text-slate-700 uppercase mb-1">NIK <span
@@ -215,8 +209,6 @@
                                             @keydown.enter.prevent="checkNik()" @blur="checkNik()"
                                             class="w-full border-2 border-slate-300 focus:border-slate-900 rounded-sm text-sm font-bold h-11 placeholder-slate-300 px-3"
                                             placeholder="Ketik NIK..." required>
-
-                                        {{-- Loading Spinner --}}
                                         <div x-show="isChecking" class="absolute right-3 top-3" style="display: none;">
                                             <svg class="animate-spin h-5 w-5 text-slate-900" viewBox="0 0 24 24">
                                                 <circle class="opacity-25" cx="12" cy="12" r="10"
@@ -231,32 +223,35 @@
                                     </p>
                                 </div>
 
-                                {{-- INPUT NAMA & DEPT (GABUNGAN) --}}
+                                {{-- INPUT NAMA & DEPT (Readonly Visual) --}}
                                 <div>
                                     <label class="text-xs font-bold text-slate-700 uppercase mb-1">Nama & Dept</label>
-
-                                    {{-- Visual Display (Readonly) --}}
                                     <input type="text"
                                         :value="formData.manual_requester_name ? (formData.manual_requester_name + ' - ' +
                                             displayDept) : '-'"
                                         readonly
                                         class="w-full bg-slate-200 border-2 border-slate-200 text-slate-500 font-bold text-sm h-11 px-3 cursor-not-allowed mb-2 focus:outline-none">
 
-                                    {{-- HIDDEN INPUTS (Dikirim ke Controller) --}}
+                                    {{-- HIDDEN INPUTS --}}
                                     <input type="hidden" name="requester_name" :value="formData.manual_requester_name">
-                                    <input type="hidden" name="requester_department" :value="displayDept">
+                                    {{-- Kirim data department yang dipilih di select box bawah --}}
+                                    <input type="hidden" name="requester_department" :value="formData.department">
                                 </div>
                             </div>
                         </div>
 
-                        {{-- SECTION 2: AREA KERJA --}}
+                        {{-- SECTION 2: AREA KERJA (BAGIAN YANG DIUBAH MENJADI DINAMIS) --}}
                         <div class="bg-slate-50 p-5 rounded-sm border border-slate-200 mt-6">
                             <label class="block text-xs font-black text-slate-400 uppercase mb-4 tracking-widest">Target
                                 Area Kerja</label>
                             <div class="grid grid-cols-2 gap-4">
+
+                                {{-- 1. PILIH PLANT --}}
                                 <div>
-                                    <label class="text-xs font-bold text-slate-600 uppercase mb-1">Lokasi</label>
-                                    <select name="plant_id" x-model="formData.plant_id" @change="updateDepartment()"
+                                    <label class="text-xs font-bold text-slate-600 uppercase mb-1">Lokasi <span
+                                            class="text-red-500">*</span></label>
+                                    <select name="plant_id" x-model="formData.plant_id"
+                                        @change="fetchDepartments($event.target.value)"
                                         class="w-full border-2 border-slate-300 focus:border-slate-900 rounded-sm text-sm font-bold h-11"
                                         required>
                                         <option value="">-- PILIH LOKASI --</option>
@@ -265,35 +260,36 @@
                                         @endforeach
                                     </select>
                                 </div>
+
+                                {{-- 2. PILIH DEPT (DINAMIS DARI AJAX) --}}
                                 <div>
-                                    <label class="text-xs font-bold text-slate-600 uppercase mb-1">Department</label>
+                                    <label class="text-xs font-bold text-slate-600 uppercase mb-1">
+                                        Department Pelapor <span class="text-red-500">*</span>
+                                        <span x-show="isLoadingDept"
+                                            class="text-[10px] text-yellow-600 ml-2 animate-pulse">Loading...</span>
+                                    </label>
+
                                     <select name="department" x-model="formData.department"
+                                        @change="syncDisplayDept()"
                                         class="w-full border-2 border-slate-300 focus:border-slate-900 rounded-sm text-sm font-bold bg-white h-11"
-                                        required>
-                                        <option value="">-- PILIH DEPT --</option>
-                                        <option value="Low Voltage">Low Voltage</option>
-                                        <option value="Medium Voltage">Medium Voltage</option>
-                                        <option value="IT">IT</option>
-                                        <option value="FH">FH</option>
-                                        <option value="PE">PE</option>
-                                        <option value="MT">MT</option>
-                                        <option value="GA">GA</option>
-                                        <option value="FO">FO</option>
-                                        <option value="SS">SS</option>
-                                        <option value="SC">SC</option>
-                                        <option value="RM">RM</option>
-                                        <option value="QR">QR</option>
-                                        <option value="FA">FA</option>
-                                        <option value="HC">HC</option>
-                                        <option value="Sales">Sales</option>
-                                        <option value="Marketing">Marketing</option>
-                                        <option value="Planning">Planning</option>
+                                        required :disabled="isLoadingDept">
+
+                                        <option value="">-- PILIH DEPARTMENT --</option>
+
+                                        {{-- Looping Data Dept --}}
+                                        {{-- Asumsi return controller adalah array value ['IT', 'GA', ...] atau object {'IT':'IT'} --}}
+                                        <template x-for="(deptName, deptKey) in departments" :key="deptKey">
+                                            <option :value="deptName" x-text="deptName"></option>
+                                        </template>
+
                                     </select>
+                                    <p x-show="!formData.plant_id" class="text-[10px] text-red-400 mt-1 italic">Pilih
+                                        Lokasi terlebih dahulu</p>
                                 </div>
                             </div>
                         </div>
 
-                        {{-- SECTION 3: DETAIL --}}
+                        {{-- SECTION 3: DETAIL (Tidak berubah) --}}
                         <div class="grid grid-cols-2 gap-4 mt-6">
                             <div>
                                 <label class="text-xs font-bold text-slate-700 uppercase mb-1">Target Selesai

@@ -1,24 +1,28 @@
 @props(['workOrders'])
 <div class="bg-white shadow-xl rounded-sm overflow-hidden border border-slate-200">
     <div class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-slate-100">
+        <table class="min-w-full divide-y divide-slate-200">
             <thead class="bg-slate-900">
                 <tr>
-                    <th class="px-6 py-4 w-10"><input type="checkbox" @change="toggleSelectAll()"
+                    <th class="px-6 py-4 w-10">
+                        <input type="checkbox" @change="toggleSelectAll()"
                             :checked="pageIds.length > 0 && pageIds.every(id => selected.includes(id))"
                             class="rounded-sm border-slate-600 bg-slate-700 text-yellow-400 focus:ring-offset-slate-900 focus:ring-yellow-400 cursor-pointer">
                     </th>
                     @foreach (['Tiket', 'Pelapor', 'Lokasi / Dept', 'Parameter', 'Bobot', 'Uraian', 'Diterima Oleh', 'Status', 'Aksi'] as $head)
                         <th
                             class="px-6 py-4 text-left text-[11px] font-black text-white uppercase tracking-widest {{ $head == 'Tiket' ? 'text-yellow-400' : '' }}">
-                            {{ $head }}</th>
+                            {{ $head }}
+                        </th>
                     @endforeach
                 </tr>
             </thead>
             <tbody class="bg-white divide-y divide-slate-100">
-                @forelse ($workOrders as $item)
-                    <tr class="hover:bg-yellow-50/50 transition-colors duration-150 group">
-                        <td class="px-6 py-4"><input type="checkbox" value="{{ (string) $item->id }}" x-model="selected"
+                @forelse ($workOrders as $index => $item)
+                    <tr
+                        class="hover:bg-yellow-50/50 transition-colors duration-150 group {{ $index % 2 == 0 ? 'bg-white' : 'bg-slate-50/30' }}">
+                        <td class="px-6 py-4">
+                            <input type="checkbox" value="{{ (string) $item->id }}" x-model="selected"
                                 class="rounded-sm border-slate-300 text-slate-900 focus:ring-yellow-400 cursor-pointer" />
                         </td>
 
@@ -26,17 +30,20 @@
                         <td class="px-6 py-4">
                             <div
                                 class="text-sm font-black text-slate-900 font-mono group-hover:text-blue-600 transition-colors">
-                                {{ $item->ticket_num }}</div>
+                                {{ $item->ticket_num }}
+                            </div>
                             <div class="text-[10px] text-slate-400 font-bold mt-0.5 uppercase">
-                                {{ $item->created_at->format('d M Y') }}</div>
+                                {{ $item->created_at->format('d M Y') }}
+                            </div>
                         </td>
 
                         {{-- Pelapor --}}
                         <td class="px-6 py-4">
                             <div class="text-xs font-bold text-slate-700">{{ $item->requester_name }}</div>
                             @if ($item->requester_department)
-                                <div class="text-[10px] font-bold text-slate-400 mt-1">Dept:
-                                    {{ $item->requester_department }}</div>
+                                <div class="text-[10px] font-bold text-slate-400 mt-1">
+                                    Dept: {{ $item->requester_department }}
+                                </div>
                             @endif
                         </td>
 
@@ -51,8 +58,9 @@
                                 @endif
                                 @if ($item->department)
                                     <span
-                                        class="px-2 py-0.5 rounded-sm text-[10px] font-black bg-slate-800 text-white uppercase tracking-tight">DEPT:
-                                        {{ $item->department }}</span>
+                                        class="px-2 py-0.5 rounded-sm text-[10px] font-black bg-slate-800 text-white uppercase tracking-tight">
+                                        DEPT: {{ $item->department }}
+                                    </span>
                                 @endif
                                 @if (!$item->plant && !$item->department)
                                     <span class="text-xs text-slate-300 italic">-</span>
@@ -60,8 +68,10 @@
                             </div>
                         </td>
 
+                        {{-- Parameter --}}
                         <td class="px-6 py-4 text-xs font-bold text-slate-600 uppercase">
-                            {{ $item->parameter_permintaan }}</td>
+                            {{ $item->parameter_permintaan }}
+                        </td>
 
                         {{-- Bobot --}}
                         <td class="px-6 py-4 whitespace-nowrap">
@@ -79,11 +89,15 @@
                                 };
                             @endphp
                             <span
-                                class="px-2 py-1 text-[10px] font-black rounded-sm border {{ $catColor }} uppercase tracking-wide">{{ $catDisplay }}</span>
+                                class="px-2 py-1 text-[10px] font-black rounded-sm border {{ $catColor }} uppercase tracking-wide">
+                                {{ $catDisplay }}
+                            </span>
                         </td>
 
+                        {{-- Uraian --}}
                         <td class="px-6 py-4 text-xs text-slate-500 max-w-xs truncate font-medium">
-                            {{ Str::limit($item->description, 35) }}</td>
+                            {{ Str::limit($item->description, 35) }}
+                        </td>
 
                         {{-- PIC --}}
                         <td class="px-6 py-4 whitespace-nowrap">
@@ -91,38 +105,39 @@
                                 <div class="flex items-center gap-2">
                                     <div
                                         class="w-6 h-6 rounded-full bg-slate-800 text-white flex items-center justify-center text-[10px] font-black border border-slate-600">
-                                        {{ substr($item->processed_by_name, 0, 1) }}</div>
-                                    <span
-                                        class="text-xs font-bold text-slate-700 uppercase">{{ $item->processed_by_name }}</span>
+                                        {{ substr($item->processed_by_name, 0, 1) }}
+                                    </div>
+                                    <span class="text-xs font-bold text-slate-700 uppercase">
+                                        {{ $item->processed_by_name }}
+                                    </span>
                                 </div>
                             @else
                                 <span
-                                    class="text-[10px] font-bold text-slate-400 uppercase tracking-wide border border-dashed border-slate-300 px-2 py-1 rounded-sm">Menunggu</span>
+                                    class="text-[10px] font-bold text-slate-400 uppercase tracking-wide border border-dashed border-slate-300 px-2 py-1 rounded-sm">
+                                    Menunggu
+                                </span>
                             @endif
                         </td>
 
-                        {{-- Status --}}
                         {{-- Status --}}
                         <td class="px-6 py-4 whitespace-nowrap">
                             @php
                                 $statusClass = match ($item->status) {
                                     'completed' => 'bg-emerald-100 text-emerald-800 border-emerald-200',
-                                    'pending'
-                                        => 'bg-purple-100 text-purple-800 border-purple-200', // [BARU] Pending GA warna Ungu
+                                    'pending' => 'bg-purple-100 text-purple-800 border-purple-200',
                                     'in_progress' => 'bg-blue-100 text-blue-800 border-blue-200',
                                     'waiting_spv' => 'bg-orange-100 text-orange-800 border-orange-200',
                                     'cancelled' => 'bg-rose-100 text-rose-800 border-rose-200',
                                     default => 'bg-slate-100 text-slate-800',
                                 };
 
-                                // Label
                                 $statusLabel = str_replace('_', ' ', $item->status);
                                 if ($item->status == 'waiting_spv') {
-                                    $statusLabel = 'WAITING SPV';
+                                    $statusLabel = 'WAITING APPROVAL';
                                 }
                                 if ($item->status == 'pending') {
                                     $statusLabel = 'PENDING GA';
-                                } // Label Baru
+                                }
                             @endphp
                             <span
                                 class="px-3 py-1 text-[10px] font-black uppercase rounded-sm border {{ $statusClass }} tracking-wider">
@@ -130,18 +145,13 @@
                             </span>
                         </td>
 
-                        {{-- Aksi (Digabung dalam satu TD agar rapi) --}}
                         {{-- Aksi --}}
-                        {{-- KOLOM AKSI --}}
                         <td class="px-6 py-4">
                             <div class="flex items-center gap-3 justify-end">
-
-                                {{-- A. TOMBOL DETAIL (Selalu Muncul) --}}
-                                {{-- Pastikan nama fungsi JS 'openDetailModal' sesuai dengan script modal detail kamu --}}
-                                {{-- Ganti tombol mata Anda menjadi seperti ini --}}
+                                {{-- Tombol Detail --}}
                                 <button type="button"
                                     @click="$dispatch('buka-detail', '{{ base64_encode(json_encode($item)) }}')"
-                                    class="text-slate-400 hover:text-blue-600 transition-colors">
+                                    class="text-slate-400 hover:text-blue-600 transition-colors" title="Lihat Detail">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none"
                                         viewBox="0 0 24 24" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -151,42 +161,75 @@
                                     </svg>
                                 </button>
 
-                                {{-- ================================================= --}}
-                                {{-- B. LOGIK ADMIN TEKNIS (Engineer/MT/FH/SC)         --}}
-                                {{-- ================================================= --}}
+                                @if (Auth::user()->role === 'ga.admin' || Auth::user()->role === 'admin_ga')
+                                    <button type="button" @click='openEditModal(@json($item))'
+                                        class="text-slate-400 hover:text-yellow-500 transition-colors"
+                                        title="Update / Edit">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none"
+                                            viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                        </svg>
+                                    </button>
+                                @endif
+
+                                {{-- LOGIKA OTORITAS APPROVAL (Admin Teknis & GA) --}}
                                 @php
                                     $userRole = Auth::user()->role;
+                                    // PERBAIKAN 1: Gunakan 'department' (Target), BUKAN 'requester_department'
                                     $deptTiket = $item->department;
+
                                     $statusTiket = $item->status;
                                     $isAuthorized = false;
 
-                                    // Logik Hak Akses (Sama seperti sebelumnya)
+                                    // Cek apakah status masih menunggu approval
                                     if ($statusTiket == 'waiting_spv' || $statusTiket == 'waiting_approval') {
+                                        // 1. Logika Maintenance
                                         if (
                                             ($deptTiket == 'MT' || stripos($deptTiket, 'Maintenance') !== false) &&
                                             $userRole == 'mt.admin'
                                         ) {
                                             $isAuthorized = true;
-                                        } elseif (
+                                        }
+                                        // 2. Logika Facility
+                                        elseif (
                                             ($deptTiket == 'FH' || stripos($deptTiket, 'Facility') !== false) &&
                                             $userRole == 'fh.admin'
                                         ) {
                                             $isAuthorized = true;
-                                        } elseif (
+                                        }
+                                        // 3. Logika Engineering
+                                        elseif (
                                             ($deptTiket == 'ENG' ||
                                                 $deptTiket == 'SC' ||
-                                                stripos($deptTiket, 'Engineering') !== false) &&
+                                                stripos($deptTiket, 'Engineering') !== false ||
+                                                in_array($deptTiket, [
+                                                    'PE',
+                                                    'Low Voltage',
+                                                    'Medium Voltage',
+                                                    'FO',
+                                                    'QR',
+                                                    'SS',
+                                                ])) &&
                                             $userRole == 'eng.admin'
+                                        ) {
+                                            $isAuthorized = true;
+                                        }
+                                        // 4. PERBAIKAN 2: Logika GA ADMIN (Agar tombol muncul untuk tiket GA)
+                                        elseif (
+                                            in_array($deptTiket, ['GA', 'General Affair']) &&
+                                            ($userRole == 'ga.admin' || $userRole == 'admin_ga')
                                         ) {
                                             $isAuthorized = true;
                                         }
                                     }
                                 @endphp
 
+                                {{-- TAMPILKAN TOMBOL APPROVE/REJECT --}}
                                 @if ($isAuthorized)
                                     <form id="form-tech-{{ $item->id }}"
                                         action="{{ route('wo.approve_technical', $item->id) }}" method="POST"
-                                        style="display: none;">
+                                        class="hidden">
                                         @csrf
                                         <input type="hidden" name="action" id="input-action-{{ $item->id }}">
                                     </form>
@@ -194,36 +237,40 @@
                                     <div class="flex gap-2">
                                         <button type="button"
                                             onclick="confirmTechnicalAction('{{ $item->id }}', 'approve')"
-                                            class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1 px-3 rounded text-[10px] shadow flex items-center transition-colors">
+                                            class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1 px-3 rounded text-[10px] shadow-sm flex items-center transition-colors"
+                                            title="Approve Tiket">
                                             <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor"
                                                 viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                    d="M5 13l4 4L19 7"></path>
+                                                    d="M5 13l4 4L19 7">
+                                                </path>
                                             </svg>
                                             Approve
                                         </button>
 
                                         <button type="button"
                                             onclick="confirmTechnicalAction('{{ $item->id }}', 'decline')"
-                                            class="bg-rose-600 hover:bg-rose-700 text-white font-bold py-1 px-3 rounded text-[10px] shadow flex items-center transition-colors">
+                                            class="bg-rose-600 hover:bg-rose-700 text-white font-bold py-1 px-3 rounded text-[10px] shadow-sm flex items-center transition-colors"
+                                            title="Reject Tiket">
                                             <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor"
                                                 viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                    d="M6 18L18 6M6 6l12 12"></path>
+                                                    d="M6 18L18 6M6 6l12 12">
+                                                </path>
                                             </svg>
                                             Reject
                                         </button>
                                     </div>
                                 @endif
 
-
-                                {{-- ================================================= --}}
-                                {{-- C. LOGIK ADMIN GA (Tetap Menggunakan Modal Proses) --}}
-                                {{-- ================================================= --}}
-                                @if (($item->status == 'waiting_ga_approval' || $item->status == 'pending') && $userRole == 'ga.admin')
+                                {{-- Logika Tombol PROSES (Setelah Approved) --}}
+                                @if (
+                                    ($item->status == 'waiting_ga_approval' || $item->status == 'pending') &&
+                                        ($userRole == 'ga.admin' || $userRole == 'admin_ga'))
                                     <button
                                         onclick="openProcessModal('{{ $item->id }}', '{{ $item->ticket_num }}', '{{ $item->requester_name }}')"
-                                        class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded text-[10px] shadow flex items-center gap-1">
+                                        class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded text-[10px] shadow-sm flex items-center gap-1 transition-colors"
+                                        title="Proses Tiket">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none"
                                             viewBox="0 0 24 24" stroke="currentColor">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -232,7 +279,6 @@
                                         Proses
                                     </button>
                                 @endif
-
                             </div>
                         </td>
                     </tr>
@@ -246,8 +292,9 @@
                                         d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
                                     </path>
                                 </svg>
-                                <span class="text-slate-500 font-bold uppercase tracking-wide">Tidak ada
-                                    data ditemukan</span>
+                                <span class="text-slate-500 font-bold uppercase tracking-wide">
+                                    Tidak ada data ditemukan
+                                </span>
                             </div>
                         </td>
                     </tr>
@@ -255,11 +302,14 @@
             </tbody>
         </table>
     </div>
-    {{-- Pagination with custom styling --}}
+
+    {{-- Pagination --}}
     <div class="bg-slate-50 px-6 py-4 border-t border-slate-200">
         {{ $workOrders->appends(request()->all())->links() }}
     </div>
 </div>
+
+{{-- Modal Process GA --}}
 <div id="modal-process-ga" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title"
     role="dialog" aria-modal="true">
     <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
@@ -270,7 +320,6 @@
 
         <div
             class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
-
             <form id="form-process-ga" action="" method="POST">
                 @csrf
                 @method('PUT')
@@ -298,21 +347,25 @@
                                 </p>
 
                                 <div class="mb-4 bg-gray-50 p-3 rounded-md border border-gray-200">
-                                    <label
-                                        class="block text-gray-700 text-xs font-bold mb-2 uppercase tracking-wide">Tindakan:</label>
+                                    <label class="block text-gray-700 text-xs font-bold mb-2 uppercase tracking-wide">
+                                        Tindakan:
+                                    </label>
                                     <div class="flex items-center space-x-6">
                                         <label class="inline-flex items-center cursor-pointer">
                                             <input type="radio" name="action" value="approve" checked
                                                 onclick="toggleReasonGa(false)"
                                                 class="form-radio text-green-600 h-4 w-4 focus:ring-green-500">
-                                            <span class="ml-2 text-sm font-medium text-gray-700">Approve
-                                                (Setujui)</span>
+                                            <span class="ml-2 text-sm font-medium text-gray-700">
+                                                Approve (Setujui)
+                                            </span>
                                         </label>
                                         <label class="inline-flex items-center cursor-pointer">
                                             <input type="radio" name="action" value="reject"
                                                 onclick="toggleReasonGa(true)"
                                                 class="form-radio text-red-600 h-4 w-4 focus:ring-red-500">
-                                            <span class="ml-2 text-sm font-medium text-gray-700">Reject (Tolak)</span>
+                                            <span class="ml-2 text-sm font-medium text-gray-700">
+                                                Reject (Tolak)
+                                            </span>
                                         </label>
                                     </div>
                                 </div>
@@ -344,12 +397,12 @@
         </div>
     </div>
 </div>
-<script>
-    // Fungsi Global untuk konfirmasi SweetAlert
-    function confirmSubmit(event, title, text, icon = 'warning', confirmColor = '#3085d6') {
-        event.preventDefault(); // 1. Tahan submit form
 
-        const form = event.target; // Ambil elemen form
+{{-- <script>
+    // Fungsi konfirmasi SweetAlert
+    function confirmSubmit(event, title, text, icon = 'warning', confirmColor = '#3085d6') {
+        event.preventDefault();
+        const form = event.target;
 
         Swal.fire({
             title: title,
@@ -357,31 +410,30 @@
             icon: icon,
             showCancelButton: true,
             confirmButtonColor: confirmColor,
-            cancelButtonColor: '#64748b', // Warna abu-abu untuk batal
+            cancelButtonColor: '#64748b',
             confirmButtonText: 'Ya, Lanjutkan!',
             cancelButtonText: 'Batal',
-            reverseButtons: true // Tombol batal di kiri, aksi di kanan
+            reverseButtons: true
         }).then((result) => {
             if (result.isConfirmed) {
-                form.submit(); // 2. Lanjutkan submit jika user klik Ya
+                form.submit();
             }
         });
     }
-    // Fungsi Khusus Tolak dengan Input Alasan (OPSIONAL)
-    function confirmRejectWithReason(event) {
-        event.preventDefault(); // 1. Tahan form agar tidak langsung kirim
-        const form = event.target; // Ambil elemen form yang sedang diklik
 
-        // Cek SweetAlert
+    // Fungsi konfirmasi tolak dengan alasan
+    function confirmRejectWithReason(event) {
+        event.preventDefault();
+        const form = event.target;
+
         if (typeof Swal === 'undefined') {
             alert('Error: SweetAlert belum dimuat. Silakan refresh halaman.');
             return;
         }
 
-        // 2. Tampilkan Modal Input
         Swal.fire({
             title: 'Tolak Tiket?',
-            input: 'textarea', // Ini yang memunculkan kotak teks
+            input: 'textarea',
             inputLabel: 'Alasan Penolakan (Opsional)',
             inputPlaceholder: 'Tulis alasan kenapa ditolak (boleh dikosongkan)...',
             icon: 'warning',
@@ -391,63 +443,54 @@
             confirmButtonText: 'Ya, Tolak',
             cancelButtonText: 'Batal'
         }).then((result) => {
-            // 3. Jika user klik "Ya, Tolak"
             if (result.isConfirmed) {
-                // Buat input hidden baru untuk menampung alasan
                 const reasonInput = document.createElement('input');
                 reasonInput.type = 'hidden';
-                reasonInput.name = 'reason'; // Nama field yang akan dibaca Controller
-
-                // Jika kosong, isi dengan strip '-'
+                reasonInput.name = 'reason';
                 reasonInput.value = result.value ? result.value : '-';
-
-                // Masukkan ke dalam form dan kirim
                 form.appendChild(reasonInput);
                 form.submit();
             }
         });
     }
-    // 1. Fungsi Buka Modal & Set Data
+
+    // Fungsi buka modal proses
     function openProcessModal(id, ticketNum, requesterName) {
-        // A. Set URL Action Form secara dinamis
-        // Kita pakai placeholder :id lalu replace dengan ID asli
         let url = "{{ route('work-order-ga.process', ':id') }}";
         url = url.replace(':id', id);
         document.getElementById('form-process-ga').action = url;
 
-        // B. Set Teks Info
         document.getElementById('modal-ticket-num').innerText = ticketNum;
         document.getElementById('modal-requester-name').innerText = requesterName;
 
-        // C. Reset Form (Default: Approve, Alasan Hidden & Kosong)
         document.querySelector('input[name="action"][value="approve"]').checked = true;
         toggleReasonGa(false);
 
-        // D. Tampilkan Modal
         document.getElementById('modal-process-ga').classList.remove('hidden');
     }
 
-    // 2. Fungsi Tutup Modal
+    // Fungsi tutup modal
     function closeProcessModal() {
         document.getElementById('modal-process-ga').classList.add('hidden');
     }
 
-    // 3. Fungsi Toggle Input Alasan
+    // Fungsi toggle input alasan
     function toggleReasonGa(isReject) {
         const container = document.getElementById('reason-container-ga');
         const input = document.getElementById('reason-input-ga');
 
         if (isReject) {
             container.classList.remove('hidden');
-            input.setAttribute('required', 'required'); // Wajib isi kalau Reject
+            input.setAttribute('required', 'required');
             input.focus();
         } else {
             container.classList.add('hidden');
-            input.removeAttribute('required'); // Gak wajib kalau Approve
-            input.value = ''; // Bersihkan teks
+            input.removeAttribute('required');
+            input.value = '';
         }
     }
-    // Fungsi SweetAlert Khusus Admin Teknis (Engineer/SPV)
+
+    // Fungsi konfirmasi admin teknis
     function confirmTechnicalAction(id, type) {
         let titleText = '';
         let bodyText = '';
@@ -455,22 +498,20 @@
         let confirmColor = '';
         let btnText = '';
 
-        // Atur Teks berdasarkan tombol yang diklik
         if (type === 'approve') {
             titleText = 'Setujui Tiket?';
             bodyText = 'Tiket akan diteruskan ke tim GA.';
             iconType = 'question';
-            confirmColor = '#059669'; // Emerald Green
+            confirmColor = '#059669';
             btnText = 'Ya, Approve!';
         } else {
             titleText = 'Tolak Tiket?';
             bodyText = 'Tiket akan dikembalikan ke user.';
             iconType = 'warning';
-            confirmColor = '#e11d48'; // Rose Red
+            confirmColor = '#e11d48';
             btnText = 'Ya, Tolak!';
         }
 
-        // Tampilkan SweetAlert
         Swal.fire({
             title: titleText,
             text: bodyText,
@@ -482,14 +523,9 @@
             cancelButtonText: 'Batal'
         }).then((result) => {
             if (result.isConfirmed) {
-                // 1. Isi input hidden dengan value action (approve/decline)
                 document.getElementById('input-action-' + id).value = type;
-
-                // 2. Submit Form
                 document.getElementById('form-tech-' + id).submit();
             }
         });
     }
-
-    // Placeholder fungsi detail jika belum ada
-</script>
+</script> --}}

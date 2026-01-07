@@ -1,6 +1,7 @@
 @props(['filterOptions' => []])
-<div class="bg-white shadow-lg rounded-2xl border border-slate-100 mb-8 hover:shadow-xl transition-shadow duration-300"
-    x-data="{ showFilters: {{ request()->anyFilled(['category', 'status', 'parameter', 'start_date']) ? 'true' : 'false' }} }">
+
+<div class="bg-white shadow-lg rounded-2xl border border-slate-100 mb-8 hover:shadow-xl transition-shadow duration-300">
+
     {{-- Header Bar (Yellow Accent) --}}
     <div class="h-2 bg-gradient-to-r from-yellow-400 via-amber-400 to-yellow-500 w-full rounded-t-2xl">
     </div>
@@ -43,29 +44,17 @@
                     @endif
                 </button>
 
-                {{-- Export Button --}}
-                <a href="{{ route('ga.export', request()->query()) }}"
+                {{-- Export Button (General - Tanpa Centang) --}}
+                {{-- Ini akan mengexport semua data sesuai filter saat ini --}}
+                <button type="submit" formaction="{{ route('ga.export') }}"
                     class="flex items-center justify-center px-5 py-3 border-2 border-slate-200 text-slate-600 hover:text-emerald-600 hover:border-emerald-500 hover:bg-emerald-50 bg-white rounded-xl transition-all shadow-sm hover:shadow-md font-bold text-xs uppercase"
-                    title="Export Excel">
+                    title="Export Semua Data (Sesuai Filter)">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
                         </path>
                     </svg>
-                </a>
-
-                {{-- Admin Stats --}}
-                @if (Auth::check() && Auth::user()->role !== 'ga.admin')
-                    <a href="{{ route('ga.dashboard') }}"
-                        class="flex items-center justify-center w-10 h-10 border-2 border-slate-900 text-slate-900 hover:bg-slate-900 hover:text-yellow-400 bg-white rounded-sm transition-all"
-                        title="Dashboard">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z">
-                            </path>
-                        </svg>
-                    </a>
-                @endif
+                </button>
 
                 {{-- Create Button --}}
                 <button @click="showCreateModal = true" type="button"
@@ -82,14 +71,10 @@
         {{-- Collapsible Filter Panel --}}
         <div x-show="showFilters" x-collapse class="bg-slate-50 px-5 pb-5 pt-2 border-t border-slate-200">
             <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                {{-- Filter Item Wrapper --}}
-                {{-- Filter Item Wrapper --}}
                 @foreach (['status' => ['pending', 'in_progress', 'completed', 'cancelled', 'waiting_spv'], 'category' => ['BERAT', 'SEDANG', 'RINGAN'], 'parameter' => ['KEBERSIHAN', 'PEMELIHARAAN', 'PERBAIKAN', 'PEMBUATAN BARU', 'PERIZINAN', 'RESERVASI']] as $key => $opts)
                     <div>
                         <label
                             class="text-[10px] font-black text-slate-500 uppercase block mb-1 tracking-wider">{{ ucfirst($key) }}</label>
-
-                        {{-- PERBAIKAN: Tambahkan onchange="this.form.submit()" --}}
                         <select name="{{ $key }}" onchange="this.form.submit()"
                             class="w-full text-xs font-bold border-slate-300 focus:border-yellow-400 focus:ring-0 rounded-sm bg-white h-10 uppercase cursor-pointer hover:bg-slate-50 transition-colors">
                             <option value="">SEMUA {{ strtoupper($key) }}</option>
@@ -126,36 +111,74 @@
                 <a href="{{ route('ga.index') }}"
                     class="text-xs font-bold text-red-500 hover:text-red-700 flex items-center gap-1 uppercase tracking-wide transition-colors">
                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M6 18L18 6M6 6l12 12"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
+                        </path>
                     </svg> Reset Filter
                 </a>
             </div>
         </div>
     </form>
 
-    {{-- Bulk Action Bar --}}
+    {{-- Bulk Action Bar (MUNCUL SAAT ADA YANG DICENTANG) --}}
     <div x-show="selected.length > 0" x-transition
-        class="bg-yellow-50 px-5 py-3 border-t border-yellow-200 flex justify-between items-center">
+        class="bg-yellow-50 px-5 py-3 border-t border-yellow-200 flex flex-col md:flex-row justify-between items-center gap-4">
+
+        {{-- Counter Info --}}
         <div class="flex items-center gap-2 text-xs font-bold text-slate-800 uppercase tracking-wider">
             <span class="flex h-3 w-3 relative"><span
                     class="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span><span
                     class="relative inline-flex rounded-full h-3 w-3 bg-yellow-500"></span></span>
             <span x-text="selected.length"></span> ITEM TERPILIH
         </div>
-        <div class="flex gap-4">
-            <form id="exportForm" action="{{ route('ga.export') }}" method="GET" class="flex items-center">
+
+        {{-- Action Buttons --}}
+        <div class="flex flex-wrap gap-4 items-center justify-center">
+
+            {{-- BUTTON 1: DOWNLOAD CHECKLIST (Hanya ID yang dipilih) --}}
+            <form id="exportSelectedForm" action="{{ route('ga.export') }}" method="GET"
+                class="flex items-center">
                 <input type="hidden" name="selected_ids" :value="selected.join(',')">
+
+                {{-- Loop Filter juga di sini agar aman --}}
+                @foreach (request()->except(['selected_ids', 'page']) as $key => $value)
+                    <input type="hidden" name="{{ $key }}" value="{{ $value }}">
+                @endforeach
+
                 <button type="submit"
                     class="text-xs font-bold text-slate-800 hover:text-blue-700 uppercase flex items-center gap-1 transition-colors">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
-                    </svg> Download Selected
+                    </svg>
+                    Download Checklist (<span x-text="selected.length"></span>)
                 </button>
             </form>
+
+            {{-- BUTTON 2: EXPORT SEMUA FILTERED (Hijau - Tidak peduli checklist) --}}
+            <form action="{{ route('ga.export') }}" method="GET"
+                class="flex items-center border-l border-slate-300 pl-4">
+                {{-- Loop semua filter yang ada di URL saat ini ke dalam input hidden --}}
+                @foreach (request()->except(['selected_ids', 'page']) as $key => $value)
+                    <input type="hidden" name="{{ $key }}" value="{{ $value }}">
+                @endforeach
+
+                {{-- Tombol Submit --}}
+                <button type="submit"
+                    class="text-xs font-bold text-green-600 hover:text-green-800 uppercase flex items-center gap-1 transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
+                        </path>
+                    </svg>
+                    Export Semua (Filter)
+                </button>
+            </form>
+
+            {{-- BUTTON 3: BATAL --}}
             <button type="button" @click="clearSelection()"
-                class="text-xs font-bold text-red-400 hover:text-red-600 uppercase transition-colors">Batal</button>
+                class="text-xs font-bold text-red-400 hover:text-red-600 uppercase transition-colors ml-2">
+                Batal
+            </button>
         </div>
     </div>
 </div>

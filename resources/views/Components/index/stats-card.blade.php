@@ -1,28 +1,38 @@
-@props(['countTotal', 'countPending', 'countInProgress', 'countCompleted'])
-<div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10" x-show="show"
-    x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 translate-y-4"
-    x-transition:enter-end="opacity-100 translate-y-0">
+@props(['countTotal', 'countPending', 'countInProgress', 'countCompleted', 'countWaitingApproval' => 0])
+
+@php
+    // Hitung jumlah card yang akan ditampilkan
+    $currentUserRole = Auth::user()->role ?? null;
+    $isTeknisAdmin = in_array($currentUserRole, ['mt.admin', 'fh.admin', 'eng.admin']);
+    $totalCards = $isTeknisAdmin ? 5 : 4;
+
+    // Dynamic grid class
+    $gridClass =
+        $totalCards === 5 ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-5' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-4';
+@endphp
+
+<div class="grid {{ $gridClass }} gap-6 mb-10">
 
     @php
         $cards = [
             [
                 'title' => 'Total Tiket',
                 'value' => $countTotal,
-                'color' => 'white',
-                'bg' => 'bg-gradient-to-br from-gray-50 to-gray-100',
-                'icon_bg' => 'bg-gray-200',
-                'icon_color' => 'text-gray-700',
-                'text_color' => 'text-gray-700',
-                'border' => 'border-gray-200',
-                'accent' => 'bg-gray-100',
+                'color' => 'gray',
+                'bg' => 'bg-gradient-to-br from-slate-100 to-slate-200',
+                'icon_bg' => 'bg-slate-300/40',
+                'icon_color' => 'text-slate-700',
+                'text_color' => 'text-slate-800',
+                'border' => 'border-slate-300',
+                'accent' => 'bg-slate-200/50',
                 'icon_path' =>
                     'M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2',
             ],
             [
-                'title' => 'Pending',
+                'title' => 'Pending GA',
                 'value' => $countPending,
                 'color' => 'yellow',
-                'bg' => 'bg-gradient-to-br from-yellow-400 to-orange-500',
+                'bg' => 'bg-gradient-to-br from-yellow-400 via-yellow-500 to-yellow-600',
                 'icon_bg' => 'bg-yellow-300/30',
                 'icon_color' => 'text-white',
                 'text_color' => 'text-white',
@@ -31,10 +41,24 @@
                 'icon_path' => 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z',
             ],
             [
+                'title' => 'Waiting Approval',
+                'value' => $countWaitingApproval,
+                'color' => 'red',
+                'bg' => 'bg-gradient-to-br from-[#dc2626] via-[#c81e1e] to-[#b91c1c]',
+                'icon_bg' => 'bg-red-400/30',
+                'icon_color' => 'text-white',
+                'text_color' => 'text-white',
+                'border' => 'border-red-400',
+                'accent' => 'bg-red-300/20',
+                'icon_path' =>
+                    'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
+                'show_for' => ['mt.admin', 'fh.admin', 'eng.admin'],
+            ],
+            [
                 'title' => 'On Progress',
                 'value' => $countInProgress,
                 'color' => 'blue',
-                'bg' => 'bg-gradient-to-br from-blue-500 to-blue-700',
+                'bg' => 'bg-gradient-to-br from-[#1e40af] via-[#1e3a8a] to-[#1e3a8a]',
                 'icon_bg' => 'bg-blue-400/30',
                 'icon_color' => 'text-white',
                 'text_color' => 'text-white',
@@ -46,58 +70,90 @@
             [
                 'title' => 'Selesai',
                 'value' => $countCompleted,
-                'color' => 'green',
-                'bg' => 'bg-gradient-to-br from-red-500 to-red-700',
-                'icon_bg' => 'bg-red-400/30',
-                'icon_color' => 'text-white',
-                'text_color' => 'text-white',
-                'border' => 'border-red-400',
-                'accent' => 'bg-red-300/20',
+                'color' => 'white',
+                'bg' => 'bg-gradient-to-br from-white via-gray-50 to-gray-100',
+                'icon_bg' => 'bg-white/50',
+                'icon_color' => 'text-gray-700',
+                'text_color' => 'text-gray-800',
+                'border' => 'border-gray-300',
+                'accent' => 'bg-gray-100/30',
                 'icon_path' => 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',
             ],
         ];
+
+        // Ambil role user saat ini
+        $currentUserRole = Auth::user()->role ?? null;
     @endphp
 
     @foreach ($cards as $card)
-        <div
-            class="status-card relative {{ $card['bg'] }} border-none rounded-2xl shadow-lg hover:shadow-2xl overflow-hidden group hover:-translate-y-2 transition-all duration-300 border {{ $card['border'] }}">
-            {{-- Gradient Background Accent --}}
+        @php
+            // Cek apakah card ini perlu di-filter berdasarkan role
+            $shouldShow = true;
+            if (isset($card['show_for'])) {
+                $shouldShow = in_array($currentUserRole, $card['show_for']);
+            }
+        @endphp
+
+        @if ($shouldShow)
             <div
-                class="absolute top-0 right-0 w-32 h-32 {{ $card['accent'] }} rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-500">
-            </div>
-            {{-- Icon Pattern Background --}}
-            <div
-                class="absolute top-0 right-0 p-5 opacity-10 group-hover:opacity-20 group-hover:scale-110 transition-all duration-500">
-                <svg class="w-28 h-28 {{ $card['icon_color'] }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                        d="{{ $card['icon_path'] }}" />
-                </svg>
-            </div>
-            <div class="p-7 relative z-10">
-                <div class="flex items-center justify-between mb-5">
-                    <h3
-                        class="text-xs font-bold {{ $card['text_color'] }} uppercase tracking-widest pl-3 border-l-4 {{ $card['color'] === 'white' ? 'border-gray-400' : 'border-white/50' }}">
-                        {{ $card['title'] }}
-                    </h3>
-                    <div
-                        class="w-12 h-12 rounded-xl {{ $card['icon_bg'] }} flex items-center justify-center group-hover:scale-110 group-hover:rotate-6 transition-all duration-300 backdrop-blur-sm">
-                        <svg class="w-6 h-6 {{ $card['icon_color'] }}" fill="none" stroke="currentColor"
-                            viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="{{ $card['icon_path'] }}" />
-                        </svg>
+                class="status-card relative {{ $card['bg'] }} border-none rounded-2xl shadow-lg hover:shadow-2xl overflow-hidden group hover:-translate-y-2 transition-all duration-300 border {{ $card['border'] }}">
+                {{-- Gradient Background Accent --}}
+                <div
+                    class="absolute top-0 right-0 w-32 h-32 {{ $card['accent'] }} rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-500">
+                </div>
+
+                {{-- Icon Pattern Background --}}
+                <div
+                    class="absolute top-0 right-0 p-5 opacity-10 group-hover:opacity-20 group-hover:scale-110 transition-all duration-500">
+                    <svg class="w-28 h-28 {{ $card['icon_color'] }}" fill="none" stroke="currentColor"
+                        viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="{{ $card['icon_path'] }}" />
+                    </svg>
+                </div>
+
+                <div class="p-7 relative z-10">
+                    <div class="flex items-center justify-between mb-5">
+                        <h3
+                            class="text-xs font-bold {{ $card['text_color'] }} uppercase tracking-widest pl-3 border-l-4 {{ in_array($card['color'], ['white', 'gray']) ? 'border-gray-500' : 'border-white/70' }}">
+                            {{ $card['title'] }}
+                        </h3>
+                        <div
+                            class="w-12 h-12 rounded-xl {{ $card['icon_bg'] }} flex items-center justify-center group-hover:scale-110 group-hover:rotate-6 transition-all duration-300 backdrop-blur-sm">
+                            <svg class="w-6 h-6 {{ $card['icon_color'] }}" fill="none" stroke="currentColor"
+                                viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="{{ $card['icon_path'] }}" />
+                            </svg>
+                        </div>
                     </div>
+
+                    <div class="flex items-baseline">
+                        <span
+                            class="text-5xl font-black {{ $card['text_color'] }} tracking-tight drop-shadow-sm">{{ $card['value'] }}</span>
+                        <span class="ml-3 text-sm font-semibold {{ $card['text_color'] }} opacity-80">Tiket</span>
+                    </div>
+
+                    {{-- Badge untuk Waiting Approval --}}
+                    @if (isset($card['show_for']) && $card['value'] > 0)
+                        <div class="mt-3 pt-3 border-t border-white/20">
+                            <span
+                                class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/20 backdrop-blur-sm text-[10px] font-bold {{ $card['text_color'] }} uppercase tracking-wide animate-pulse">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                                Perlu Tindakan
+                            </span>
+                        </div>
+                    @endif
                 </div>
-                <div class="flex items-baseline">
-                    <span
-                        class="text-5xl font-black {{ $card['text_color'] }} tracking-tight drop-shadow-sm">{{ $card['value'] }}</span>
-                    <span class="ml-3 text-sm font-semibold {{ $card['text_color'] }} opacity-80">Tiket</span>
+
+                {{-- Shine effect on hover --}}
+                <div
+                    class="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none bg-gradient-to-tr from-transparent via-white/10 to-transparent transform -translate-x-full group-hover:translate-x-full transition-transform duration-1000">
                 </div>
             </div>
-            {{-- Shine effect on hover --}}
-            <div
-                class="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none bg-gradient-to-tr from-transparent via-white/10 to-transparent transform -translate-x-full group-hover:translate-x-full transition-transform duration-1000">
-            </div>
-        </div>
+        @endif
     @endforeach
 </div>

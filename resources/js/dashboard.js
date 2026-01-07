@@ -1,9 +1,17 @@
+import Chart from 'chart.js/auto';
+import ChartDataLabels from 'chartjs-plugin-datalabels';
+
+Chart.register(ChartDataLabels);
+
 document.addEventListener('DOMContentLoaded', function () {
     // Ambil data konfigurasi dari Blade (Global Variable)
     const config = window.gaDashboardData || {};
 
     // Cek apakah Chart.js sudah di-load
-    if (typeof Chart === 'undefined') return;
+    if (typeof Chart === 'undefined') {
+        console.error('Chart.js tidak ditemukan!');
+        return;
+    }
 
     // Helper: Hancurkan chart lama jika ada (Mencegah error Canvas reused)
     const destroyChartIfExists = (id) => {
@@ -11,11 +19,13 @@ document.addEventListener('DOMContentLoaded', function () {
         if (chartInstance) chartInstance.destroy();
     };
 
-    // --- 1. PERFORMANCE CHART (Doughnut) ---
+    // ============================================================
+    // 1. PERFORMANCE CHART (Doughnut)
+    // ============================================================
     const ctxPerfId = 'performanceChart';
     const ctxPerf = document.getElementById(ctxPerfId);
     if (ctxPerf && config.performance) {
-        destroyChartIfExists(ctxPerfId); // Destroy chart lama
+        destroyChartIfExists(ctxPerfId);
         new Chart(ctxPerf, {
             type: 'doughnut',
             data: {
@@ -44,12 +54,14 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // --- HELPER UNTUK CHART STANDAR ---
+    // ============================================================
+    // HELPER UNTUK CHART STANDAR (Bar Horizontal)
+    // ============================================================
     const createStandardChart = (id, type, labels, data, color, options = {}) => {
         const ctx = document.getElementById(id);
         if (!ctx) return;
         
-        destroyChartIfExists(id); // Destroy chart lama
+        destroyChartIfExists(id);
 
         new Chart(ctx.getContext('2d'), {
             type: type,
@@ -59,7 +71,8 @@ document.addEventListener('DOMContentLoaded', function () {
                     label: 'Total',
                     data: data,
                     backgroundColor: color,
-                    borderRadius: 4
+                    borderRadius: 4,
+                    barPercentage: 0.8
                 }]
             },
             options: {
@@ -70,8 +83,36 @@ document.addEventListener('DOMContentLoaded', function () {
                     legend: { display: false },
                     datalabels: {
                         color: '#fff',
-                        font: { weight: 'bold' },
-                        formatter: (val) => val > 0 ? val : ''
+                        font: { 
+                            weight: 'bold',
+                            size: 11
+                        },
+                        formatter: (val) => val > 0 ? val : '',
+                        anchor: 'end',
+                        align: 'start',
+                        offset: 4
+                    }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        grid: {
+                            color: '#f1f5f9'
+                        },
+                        ticks: {
+                            precision: 0,
+                            font: { size: 10 }
+                        }
+                    },
+                    y: {
+                        grid: { display: false },
+                        ticks: {
+                            autoSkip: false,
+                            font: { 
+                                size: 10,
+                                weight: '600'
+                            }
+                        }
                     }
                 },
                 ...options
@@ -79,11 +120,35 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     };
 
-    // --- 2. CHART LOKASI & DEPT ---
-    if (config.loc) createStandardChart('locChart', 'bar', config.loc.labels, config.loc.values, '#3b82f6');
-    if (config.dept) createStandardChart('deptChart', 'bar', config.dept.labels, config.dept.values, '#8b5cf6');
+    // ============================================================
+    // 2. CHART LOKASI
+    // ============================================================
+    if (config.loc) {
+        createStandardChart(
+            'locChart', 
+            'bar', 
+            config.loc.labels, 
+            config.loc.values, 
+            '#3b82f6'
+        );
+    }
 
-    // --- 3. CHART PARAMETER ---
+    // ============================================================
+    // 3. CHART DEPARTMENT
+    // ============================================================
+    if (config.dept) {
+        createStandardChart(
+            'deptChart', 
+            'bar', 
+            config.dept.labels, 
+            config.dept.values, 
+            '#8b5cf6'
+        );
+    }
+
+    // ============================================================
+    // 4. CHART PARAMETER (Doughnut)
+    // ============================================================
     const paramId = 'paramChart';
     if (document.getElementById(paramId) && config.param) {
         destroyChartIfExists(paramId);
@@ -94,17 +159,27 @@ document.addEventListener('DOMContentLoaded', function () {
                 datasets: [{
                     data: config.param.values,
                     backgroundColor: ['#36a2eb', '#ff6384', '#4bc0c0', '#ff9f40', '#9966ff'],
-                    borderWidth: 1
+                    borderWidth: 1,
+                    borderColor: '#fff'
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: { position: 'bottom' },
+                    legend: { 
+                        position: 'bottom',
+                        labels: {
+                            padding: 10,
+                            font: { size: 10 }
+                        }
+                    },
                     datalabels: {
                         color: '#fff',
-                        font: { weight: 'bold', size: 12 },
+                        font: { 
+                            weight: 'bold', 
+                            size: 11 
+                        },
                         formatter: (value, ctx) => {
                             let sum = ctx.chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
                             let percentage = (value * 100 / sum).toFixed(0) + "%";
@@ -116,7 +191,9 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // --- 4. CHART BOBOT ---
+    // ============================================================
+    // 5. CHART BOBOT (Pie)
+    // ============================================================
     const bobotId = 'bobotChart';
     if (document.getElementById(bobotId) && config.bobot) {
         destroyChartIfExists(bobotId);
@@ -127,17 +204,27 @@ document.addEventListener('DOMContentLoaded', function () {
                 datasets: [{
                     data: config.bobot.values,
                     backgroundColor: ['#ef4444', '#f59e0b', '#22c55e'],
-                    borderWidth: 1
+                    borderWidth: 1,
+                    borderColor: '#fff'
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: { position: 'bottom' },
+                    legend: { 
+                        position: 'bottom',
+                        labels: {
+                            padding: 10,
+                            font: { size: 10 }
+                        }
+                    },
                     datalabels: {
                         color: '#fff',
-                        font: { weight: 'bold', size: 14 },
+                        font: { 
+                            weight: 'bold', 
+                            size: 12 
+                        },
                         formatter: (value, ctx) => {
                             let sum = ctx.chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
                             let percentage = (value * 100 / sum).toFixed(0) + "%";
@@ -150,24 +237,29 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // ============================================================
-    // BAGIAN GANTT CHART DIHAPUS DARI SINI
-    // KARENA SUDAH DITANGANI OLEH gantt-chart.blade.php
+    // CATATAN: GANTT CHART SUDAH DIPINDAH KE gantt-chart.blade.php
+    // Jadi tidak perlu ada kode Gantt Chart di sini lagi
     // ============================================================
 });
 
-
-// --- EXPORT PDF FUNCTION (Global) ---
-// Kita pakai versi yang di JS ini karena lebih lengkap (ada SweetAlert & Pagination)
+// ============================================================
+// EXPORT PDF FUNCTION (Global)
+// ============================================================
 window.exportToPDF = function () {
     if (typeof Swal === 'undefined' || typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
-        alert('Library pendukung gagal dimuat.');
+        alert('Library pendukung gagal dimuat. Pastikan SweetAlert2, html2canvas, dan jsPDF sudah di-load.');
         return;
     }
 
     const { jsPDF } = window.jspdf;
     const element = document.getElementById('dashboard-content');
     
-    // Ambil tanggal dari input filter jika ada, atau default
+    if (!element) {
+        alert('Element dashboard-content tidak ditemukan!');
+        return;
+    }
+    
+    // Ambil tanggal dari input filter jika ada
     const filterStart = document.getElementById('start_date') ? document.getElementById('start_date').value : null;
     const filterEnd = document.getElementById('end_date') ? document.getElementById('end_date').value : null;
     const config = window.gaDashboardData || {};
@@ -189,7 +281,7 @@ window.exportToPDF = function () {
         scale: 2,
         useCORS: true,
         backgroundColor: '#f8fafc',
-        ignoreElements: (el) => el.tagName === 'BUTTON' 
+        ignoreElements: (el) => el.tagName === 'BUTTON' || el.classList.contains('no-print')
     }).then(canvas => {
         const imgData = canvas.toDataURL('image/png');
         const pdf = new jsPDF('p', 'mm', 'a4');
@@ -197,9 +289,9 @@ window.exportToPDF = function () {
         const pageHeight = 297; 
         const imgHeight = canvas.height * imgWidth / canvas.width;
         let heightLeft = imgHeight;
-        let position = 0; // Mulai dari atas
+        let position = 0;
 
-        // Halaman 1
+        // Halaman pertama
         pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
         heightLeft -= pageHeight;
 
@@ -215,12 +307,17 @@ window.exportToPDF = function () {
 
         Swal.fire({
             icon: 'success',
-            title: 'Selesai!',
+            title: 'PDF Berhasil Di-export!',
+            text: `File: ${fileName}`,
             timer: 2000,
             showConfirmButton: false
         });
     }).catch(err => {
-        console.error(err);
-        Swal.fire({ icon: 'error', title: 'Gagal Export' });
+        console.error('Error saat export PDF:', err);
+        Swal.fire({ 
+            icon: 'error', 
+            title: 'Gagal Export PDF',
+            text: 'Terjadi kesalahan saat membuat PDF. Silakan coba lagi.'
+        });
     });
 };
