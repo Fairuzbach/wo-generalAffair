@@ -51,8 +51,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // -----------------------------------------------------------------
 
     // Jalur 1: Admin Teknis (MT/FH/ENG)
-    Route::post('/wo/approve-technical/{id}', [GeneralAffairController::class, 'approveByTechnical'])
-        ->name('wo.approve_technical');
+    Route::post('/wo/approve-technical/{id}', [GeneralAffairController::class, 'approveByTechnical'])->name('wo.approve_technical');
 
     // Jalur 2: Admin GA
     Route::post('/wo/approve-ga/{id}', [GeneralAffairController::class, 'approveByGA'])
@@ -75,7 +74,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/ga/export', [GeneralAffairController::class, 'export'])->name('ga.export');
 
         // Update Status & PIC
-        Route::put('/ga/{id}/update-status', [GeneralAffairController::class, 'updateStatus'])->name('ga.update_status');
+        Route::put('/ga/update-status/{id}', [GeneralAffairController::class, 'updateStatus'])->name('ga.update_status');
+
+        Route::get('/get-departments/{plant_id}', [GeneralAffairController::class, 'getDepartmentsByPlant'])
+            ->name('get.departments');
 
         // Reject oleh GA
         Route::post('/ga/reject/{id}', [GeneralAffairController::class, 'reject'])->name('ga.reject');

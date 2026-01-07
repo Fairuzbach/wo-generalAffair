@@ -6,14 +6,15 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Mail; // Import Facade Mail
 use Carbon\Carbon;
-
 // --- MODELS ---
 use App\Models\User;
 use App\Models\Employee; // Pastikan model Employee ada
 use App\Models\Engineering\Plant;
 use App\Models\GeneralAffair\WorkOrderGeneralAffair;
 use App\Models\GeneralAffair\WorkOrderGaHistory;
+use App\Mail\WorkOrderNotification; // Import Mailable yang baru Anda buat
 
 // --- EXPORT ---
 use Maatwebsite\Excel\Facades\Excel;
@@ -133,32 +134,67 @@ class GeneralAffairController extends Controller
         $user = Auth::user();
         $query = WorkOrderGeneralAffair::query();
 
-        // --- A. LOGIKA HAK AKSES (VIEW PERMISSION) ---
+        // =================================================================
+        // MAPPING HAK AKSES
+        // =================================================================
+        $roleMap = [
+            'eng.admin' => ['Engineering', 'engineering', 'ENGINEERING', 'PE'],
+            'fh.admin'  => ['Facility', 'FH', 'FACILITY'],
+            'mt.admin'  => ['Maintenance', 'maintenance', 'MT'],
+            'lv.admin'  => ['Low Voltage', 'LOW VOLTAGE', 'low voltage', 'LV', 'lv'],
+            'mv.admin'  => ['Medium Voltage', 'medium voltage', 'MV', 'mv'],
+            'qr.admin'  => ['QR', 'qr'],
+            'sc.admin'  => ['SC', 'sc'],
+            'fo.admin'  => ['FO', 'fo'],
+            'ss.admin'  => ['SS', 'ss'],
+            'fa.admin'  => ['FA', 'fa'],
+            'it.admin'  => ['IT', 'it'],
+            'hc.admin'  => ['HC', 'hc'],
+            'sales.admin'     => ['Sales', 'sales'],
+            'marketing.admin' => ['Marketing', 'marketing'], // Pastikan ini ada
+        ];
+
+        // =================================================================
+        // A. LOGIKA HAK AKSES
+        // =================================================================
         if ($user) {
-            // 1. GA ADMIN
-            if ($user->role === User::ROLE_GA_ADMIN) {
-                // GA Admin tidak perlu melihat tiket yang belum diapprove atasan (waiting_spv)
-                $query->where('status', '!=', 'waiting_spv');
-            }
-            // 2. TEKNIS ADMIN (Eng, MT, FH)
-            elseif ($user->isTeknisAdmin()) {
-                // Melihat tiket dari departemen mereka (Engineering/Maintenance)
-                // Agar bisa Approve/Monitor
+
+            // 1. GA ADMIN 
+            // PERBAIKAN: Hapus 'waiting_approval' agar GA tidak melihat tiket mentah
+            if ($user->role === User::ROLE_GA_ADMIN || $user->role === 'admin_ga') {
                 $query->where(function ($q) {
-                    $q->where('requester_department', 'LIKE', '%Engineering%')
-                        ->orWhere('requester_department', 'LIKE', '%Maintenance%')
-                        ->orWhere('requester_department', 'LIKE', '%Facility%')
-                        ->orWhereNull('requester_department'); // Fallback
+                    // A. Tiket yang sudah diproses (Pending/Open/Completed) - Tampilkan Semua
+                    $q->whereIn('status', ['pending', 'approved', 'in_progress', 'completed', 'OPEN']);
+
+                    // B. Tiket BARU (Waiting Approval) - HANYA TAMPILKAN JIKA TUJUANNYA KE GA
+                    // Agar Admin GA bisa Approve/Reject tiket yang masuk ke departemennya
+                    $q->orWhere(function ($sub) {
+                        $sub->where('status', 'waiting_approval')
+                            ->whereIn('department', ['GA', 'General Affair']); // Sesuaikan nama dept GA di DB Anda
+                    });
                 });
             }
+
+            // 2. ADMIN TEKNIS (Sesuai Dept Tujuan)
+            elseif (array_key_exists($user->role, $roleMap)) {
+                $allowedDepts = $roleMap[$user->role];
+                $query->where(function ($q) use ($user, $allowedDepts) {
+                    // Hanya lihat tiket yang TUJUANNYA ke departemen dia
+                    $q->whereIn('department', $allowedDepts)
+                        // ATAU tiket yang dia BUAT SENDIRI (history pribadi)
+                        ->orWhere('requester_id', $user->id);
+                });
+            }
+
             // 3. USER BIASA
             else {
                 $query->where('requester_id', $user->id);
             }
         }
 
-        // --- B. FILTERING ---
-        // Search Global
+        // =================================================================
+        // B. FILTERING (Search & Dropdown)
+        // =================================================================
         $query->when($request->search, function ($q) use ($request) {
             $q->where(function ($sub) use ($request) {
                 $sub->where('ticket_num', 'LIKE', "%{$request->search}%")
@@ -167,45 +203,57 @@ class GeneralAffairController extends Controller
             });
         });
 
-        // Filter Dropdown
         $query->when($request->status && $request->status !== 'all', fn($q) => $q->where('status', $request->status));
         $query->when($request->category && $request->category !== 'all', fn($q) => $q->where('category', $request->category));
         $query->when($request->parameter && $request->parameter !== 'all', fn($q) => $q->where('parameter_permintaan', $request->parameter));
         $query->when($request->plant_id && $request->plant_id !== 'all', fn($q) => $q->where('plant', $request->plant_id));
 
-        // --- C. GET DATA ---
+        // =================================================================
+        // C. GET DATA
+        // =================================================================
         $workOrders = $query->with(['user', 'histories.user', 'plantInfo'])
             ->orderBy('created_at', 'desc')
             ->paginate(10)
             ->withQueryString();
 
-        $pageIds = $workOrders->pluck('id')->toArray();
-        // Ambil list Plant untuk filter (kecuali dept office)
-        $plants = Plant::whereNotIn('name', ['QC', 'GA', 'FO', 'PE', 'QR', 'SS', 'MT', 'FH'])->get();
+        // Transformasi Data Approver
+        $workOrders->getCollection()->transform(function ($ticket) {
+            $ticket->approver_divisi = null;
+            if ($ticket->processed_by_name) {
+                $approver = \App\Models\User::where('name', $ticket->processed_by_name)->first();
+                $ticket->approver_divisi = $approver ? $approver->divisi : null;
+            }
+            return $ticket;
+        });
 
-        // --- D. STATISTIK HEADER (Global Counter) ---
+        $pageIds = $workOrders->pluck('id')->toArray();
+        $plants = \App\Models\Engineering\Plant::whereNotIn('name', ['QC', 'FO', 'PE', 'QR', 'SS', 'MT', 'FH'])->get();
+
+        // =================================================================
+        // D. STATISTIK (LOGIKA SINKRON)
+        // =================================================================
         $statsQuery = WorkOrderGeneralAffair::query();
 
-        // Logic Statistik harus sama dengan Logic Hak Akses di atas
         if ($user) {
-            if ($user->role === User::ROLE_GA_ADMIN) {
-                $statsQuery->where('status', '!=', 'waiting_spv');
-            } elseif ($user->isTeknisAdmin()) {
-                $statsQuery->where(function ($q) {
-                    $q->where('requester_department', 'LIKE', '%Engineering%')
-                        ->orWhere('requester_department', 'LIKE', '%Maintenance%')
-                        ->orWhereNull('requester_department');
+            if ($user->role === User::ROLE_GA_ADMIN || $user->role === 'admin_ga') {
+                // PERBAIKAN: Statistik GA juga tidak menghitung waiting_approval
+                $statsQuery->whereIn('status', ['pending', 'approved', 'in_progress', 'completed', 'OPEN']);
+            } elseif (array_key_exists($user->role, $roleMap)) {
+                $allowedDepts = $roleMap[$user->role];
+                $statsQuery->where(function ($q) use ($user, $allowedDepts) {
+                    $q->whereIn('department', $allowedDepts)
+                        ->orWhere('requester_id', $user->id);
                 });
             } else {
                 $statsQuery->where('requester_id', $user->id);
             }
         }
 
-        // Hitung (Clone query agar tidak saling menimpa)
-        $countTotal      = (clone $statsQuery)->count();
-        $countPending    = (clone $statsQuery)->where('status', 'waiting_spv')->count();
-        $countInProgress = (clone $statsQuery)->where('status', 'in_progress')->count();
-        $countCompleted  = (clone $statsQuery)->where('status', 'completed')->count();
+        $countTotal           = (clone $statsQuery)->count();
+        $countPending         = (clone $statsQuery)->where('status', 'pending')->count();
+        $countWaitingApproval = (clone $statsQuery)->where('status', 'waiting_approval')->count();
+        $countInProgress      = (clone $statsQuery)->where('status', 'in_progress')->count();
+        $countCompleted       = (clone $statsQuery)->where('status', 'completed')->count();
 
         return view('Division.GeneralAffair.GeneralAffair', compact(
             'workOrders',
@@ -213,6 +261,7 @@ class GeneralAffairController extends Controller
             'pageIds',
             'countTotal',
             'countPending',
+            'countWaitingApproval',
             'countInProgress',
             'countCompleted'
         ));
@@ -236,11 +285,13 @@ class GeneralAffairController extends Controller
 
         $statsQuery = clone $query; // Simpan base query untuk statistik
 
-        // Ambil Data List (Limit 100 agar ringan jika tanpa filter)
+        // Ambil Data List (Urutkan berdasarkan tanggal terbaru)
         if (!$request->filled('start_date')) {
-            $query->orderBy('created_at', 'asc')->take(100);
+            // Default: ambil 100 data terbaru jika tidak ada filter
+            $query->orderBy('created_at', 'desc')->take(100);
         } else {
-            $query->orderBy('created_at', 'asc');
+            // Jika ada filter: tampilkan semua, tapi urutkan terbaru dulu
+            $query->orderBy('created_at', 'desc');
         }
         $workOrders = $query->get();
 
@@ -252,12 +303,20 @@ class GeneralAffairController extends Controller
 
         // --- CHART DATA PREPARATION ---
 
-        // 1. Chart Detail (Timeline)
+        // 1. Chart Detail (Timeline) - DIURUTKAN BERDASARKAN PRIORITAS
         $detailLabels = [];
         $detailData   = [];
         $detailColors = [];
 
-        foreach ($workOrders as $wo) {
+        // Sortir: Critical (merah) > In Progress (biru) > Completed (hijau)
+        $sortedOrders = $workOrders->sortBy(function ($wo) {
+            if ($wo->status == 'completed') return 3;
+            $end = $wo->target_completion_date ? Carbon::parse($wo->target_completion_date) : now();
+            if ($end < now()) return 1; // Critical (delayed)
+            return 2; // In Progress
+        });
+
+        foreach ($sortedOrders as $wo) {
             $detailLabels[] = "[$wo->department] $wo->ticket_num";
 
             // Hitung Durasi
@@ -275,36 +334,73 @@ class GeneralAffairController extends Controller
             $detailData[] = $diffDays < 1 ? 1 : $diffDays;
 
             // Warna Bar
-            if ($wo->status == 'completed') $detailColors[] = '#10b981'; // Hijau
-            elseif ($end < now()) $detailColors[] = '#ef4444'; // Merah (Telat)
-            else $detailColors[] = '#3b82f6'; // Biru
+            if ($wo->status == 'completed') {
+                $detailColors[] = '#10b981'; // Hijau
+            } elseif ($end < now()) {
+                $detailColors[] = '#ef4444'; // Merah (Telat/Critical)
+            } else {
+                $detailColors[] = '#3b82f6'; // Biru (In Progress)
+            }
         }
 
         // 2. Chart Phase (Beban Kerja per Dept)
         $groupedDept = $workOrders->groupBy('department');
         $phaseLabels = [];
         $phaseData   = [];
+        $phaseColors = [];
+
         foreach ($groupedDept as $deptName => $tickets) {
             $phaseLabels[] = $deptName ?? 'Unassigned';
             $phaseData[]   = $tickets->count();
+            $phaseColors[] = '#eab308'; // Yellow for all departments
         }
 
-        $chartDataDetail = ['labels' => $detailLabels, 'data' => $detailData, 'colors' => $detailColors];
-        $chartDataPhase  = ['labels' => $phaseLabels, 'data' => $phaseData, 'colors' => '#eab308'];
+        $chartDataDetail = [
+            'labels' => $detailLabels,
+            'data' => $detailData,
+            'colors' => $detailColors
+        ];
 
-        // 3. Helper Chart Sederhana
+        $chartDataPhase = [
+            'labels' => $phaseLabels,
+            'data' => $phaseData,
+            'colors' => $phaseColors
+        ];
+
+        // 3. Chart Lokasi (dengan Join ke tabel plants)
+        $locData = WorkOrderGeneralAffair::where('work_order_general_affairs.status', '!=', 'cancelled')
+            ->join('plants', 'work_order_general_affairs.plant', '=', 'plants.id')
+            ->selectRaw('plants.name as label, count(*) as total');
+
+        // Terapkan filter tanggal jika ada
+        if ($request->filled('start_date') && $request->filled('end_date')) {
+            $locData->whereDate('work_order_general_affairs.created_at', '>=', $request->start_date)
+                ->whereDate('work_order_general_affairs.created_at', '<=', $request->end_date);
+        }
+
+        $locData = $locData->groupBy('plants.name')
+            ->orderByDesc('total')
+            ->get();
+
+        // 4. Helper untuk Chart Sederhana
         $getChartData = function ($col, $q) {
             return $q->selectRaw("$col as label, count(*) as total")
-                ->whereNotNull($col)->groupBy($col)->orderByDesc('total')->get();
+                ->whereNotNull($col)
+                ->groupBy($col)
+                ->orderByDesc('total')
+                ->get();
         };
 
-        $locData   = $getChartData('plant', clone $statsQuery);
         $deptData  = $getChartData('department', clone $statsQuery);
         $paramData = $getChartData('parameter_permintaan', clone $statsQuery);
 
-        // Bobot Chart
-        $bobotData = (clone $statsQuery)->selectRaw('category, count(*) as total')
-            ->groupBy('category')->pluck('total', 'category')->toArray();
+        // 5. Bobot Chart
+        $bobotData = (clone $statsQuery)
+            ->selectRaw('category, count(*) as total')
+            ->groupBy('category')
+            ->pluck('total', 'category')
+            ->toArray();
+
         $chartBobotLabels = ['Berat (High)', 'Sedang (Medium)', 'Ringan (Low)'];
         $chartBobotValues = [
             $bobotData['HIGH'] ?? $bobotData['BERAT'] ?? 0,
@@ -312,22 +408,35 @@ class GeneralAffairController extends Controller
             $bobotData['LOW'] ?? $bobotData['RINGAN'] ?? 0
         ];
 
-        // 4. Performance Calculation
+        // 6. Performance Calculation
         $filterMonth = $request->input('filter_month', date('Y-m'));
         $year = substr($filterMonth, 0, 4);
         $month = substr($filterMonth, 5, 2);
 
         $perfQuery = WorkOrderGeneralAffair::where('status', '!=', 'cancelled')
             ->where(function ($q) use ($year, $month) {
-                $q->whereYear('target_completion_date', $year)->whereMonth('target_completion_date', $month)
+                $q->whereYear('target_completion_date', $year)
+                    ->whereMonth('target_completion_date', $month)
                     ->orWhere(function ($sub) use ($year, $month) {
-                        $sub->whereNull('target_completion_date')->whereYear('created_at', $year)->whereMonth('created_at', $month);
+                        $sub->whereNull('target_completion_date')
+                            ->whereYear('created_at', $year)
+                            ->whereMonth('created_at', $month);
                     });
             });
 
         $perfTotal      = $perfQuery->count();
         $perfCompleted  = (clone $perfQuery)->where('status', 'completed')->count();
         $perfPercentage = $perfTotal > 0 ? round(($perfCompleted / $perfTotal) * 100) : 0;
+
+        // 7. Prepare chart arrays untuk JS
+        $chartLocLabels = $locData->pluck('label')->toArray();
+        $chartLocValues = $locData->pluck('total')->toArray();
+
+        $chartDeptLabels = $deptData->pluck('label')->toArray();
+        $chartDeptValues = $deptData->pluck('total')->toArray();
+
+        $chartParamLabels = $paramData->pluck('label')->toArray();
+        $chartParamValues = $paramData->pluck('total')->toArray();
 
         return view('Division.GeneralAffair.Dashboard', compact(
             'workOrders',
@@ -343,9 +452,15 @@ class GeneralAffairController extends Controller
             'chartDataPhase',
             'chartBobotLabels',
             'chartBobotValues',
+            'chartLocLabels',
+            'chartLocValues',
+            'chartDeptLabels',
+            'chartDeptValues',
+            'chartParamLabels',
+            'chartParamValues',
             'locData',
             'deptData',
-            'paramData' // Kirim raw object agar mudah di-loop di blade
+            'paramData'
         ));
     }
 
@@ -358,7 +473,7 @@ class GeneralAffairController extends Controller
         $request->validate([
             'requester_nik' => 'required',
             'plant_id'      => 'required',
-            'department'    => 'required', // Ini Dept Tujuan (GA/IT/dll)
+            'department'    => 'required',
             'description'   => 'required',
             'category'      => 'required',
         ]);
@@ -367,86 +482,379 @@ class GeneralAffairController extends Controller
             DB::beginTransaction();
 
             // 1. Cari Data Employee (Master Data)
-            // PERBAIKAN: Gunakan Model User (sesuai tabel users)
             $employee = \App\Models\User::where('nik', $request->requester_nik)->first();
 
-            // 2. Tentukan Data Nama & Dept
-            // Priority: 
-            // A. Data dari DB ($employee) -> Paling Akurat
-            // B. Data dari Input Form Hidden ($request) -> Backup
-            // C. Data Login (Auth) -> Backup terakhir
-
+            // 2. Tentukan Data Nama & Dept Pelapor
             $fixName = $employee?->name ?? $request->requester_name ?? Auth::user()->name;
-
-            // PERBAIKAN PENTING: Ganti 'department' menjadi 'divisi'
             $fixDept = $employee?->divisi ?? $request->requester_department ?? Auth::user()->divisi;
 
-            // 3. Simpan
-            WorkOrderGeneralAffair::create([
-                'ticket_num'           => $this->generateTicketNum(),
-                'requester_id'         => Auth::id(), // Traceability (Siapa yang input)
+            // --- [LOGIKA BYPASS APPROVAL] ---
+            $loggedInUser = Auth::user();
+            $isAdminGA = $loggedInUser->divisi === 'General Affair' || $loggedInUser->role === 'admin_ga';
 
-                // Data Pelapor (Hasil Logic di atas)
+            if ($isAdminGA) {
+                $statusAwal = 'approved';
+                $pesanSukses = 'Permintaan Berhasil Dibuat (Auto-Approved by GA).';
+            } else {
+                $statusAwal = 'waiting_approval';
+                $pesanSukses = 'Permintaan Berhasil Dibuat! Silahkan hubungi SPV/Manager Dept Anda untuk Approve report ini.';
+            }
+            // ---------------------------------------
+
+            // 3. Simpan & TANGKAP VARIABELNYA ($wo)
+            $wo = WorkOrderGeneralAffair::create([
+                'ticket_num'           => $this->generateTicketNum(),
+                'requester_id'         => Auth::id(),
+
                 'requester_nik'        => $request->requester_nik,
                 'requester_name'       => $fixName,
-                'requester_department' => $fixDept, // <--- Data Dept Pelapor yang benar
+                'requester_department' => $fixDept,
 
-                // Data Work Order
                 'plant'                => $request->plant_id,
-                'department'           => $request->department, // Dept Tujuan
+                'department'           => $request->department, // Target Approval
+
                 'category'             => $request->category,
                 'description'          => $request->description,
                 'parameter_permintaan' => $request->parameter_permintaan,
                 'status_permintaan'    => 'OPEN',
                 'target_completion_date' => $request->target_completion_date,
-                'status'     => 'waiting_approval',
+
+                'status'               => $statusAwal,
+
                 'photo_path'           => $request->hasFile('photo')
                     ? $request->file('photo')->store('wo_ga', 'public')
                     : null,
             ]);
 
+            // =========================================================================
+            // 4. LOGIKA PENGIRIMAN EMAIL NOTIFIKASI
+            // =========================================================================
+
+            // A. Kirim Notifikasi ke PELAPOR (Tipe: 'created_info')
+            // -------------------------------------------------------------------------
+            $pelaporEmail = $employee?->email ?? Auth::user()->email;
+            if ($pelaporEmail) {
+                try {
+                    \Mail::to($pelaporEmail)->send(new WorkOrderNotification($wo, 'created_info'));
+                } catch (\Exception $e) {
+                    \Log::error('Gagal kirim email Pelapor: ' . $e->getMessage());
+                }
+            }
+
+            // B. Kirim Notifikasi ke APPROVER (MENGGUNAKAN MAPPING ROLE)
+            // -------------------------------------------------------------------------
+            if ($statusAwal === 'waiting_approval') {
+
+                // 1. Definisikan Mapping Role (Sesuai Database Anda)
+                $roleMap = [
+                    'eng.admin'       => ['Engineering', 'engineering', 'ENGINEERING', 'PE'],
+                    'fh.admin'        => ['Facility', 'FH', 'FACILITY'],
+                    'mt.admin'        => ['Maintenance', 'maintenance', 'MT'],
+                    'lv.admin'        => ['Low Voltage', 'LOW VOLTAGE', 'low voltage', 'LV', 'lv'],
+                    'mv.admin'        => ['Medium Voltage', 'medium voltage', 'MV', 'mv'],
+                    'qr.admin'        => ['QR', 'qr'],
+                    'sc.admin'        => ['SC', 'sc'],
+                    'fo.admin'        => ['FO', 'fo'],
+                    'ss.admin'        => ['SS', 'ss'],
+                    'fa.admin'        => ['FA', 'fa'],
+                    'it.admin'        => ['IT', 'it'],
+                    'hc.admin'        => ['HC', 'hc'],
+                    'sales.admin'     => ['Sales', 'sales'],
+                    'marketing.admin' => ['Marketing', 'marketing'],
+                    'ga.admin'        => ['GA', 'General Affair']
+                ];
+
+                // 2. Cari Role yang cocok berdasarkan Department Tujuan ($request->department)
+                $targetRole = null;
+                $targetDept = $request->department;
+
+                foreach ($roleMap as $role => $departments) {
+                    // Cek apakah Dept Tujuan ada di dalam array departemen milik role ini
+                    if (in_array($targetDept, $departments)) {
+                        $targetRole = $role;
+                        break; // Ketemu!
+                    }
+                }
+
+                // Log Debugging agar mudah dilacak
+                \Log::info("DEBUG EMAIL STORE: Dept '$targetDept' -> Target Role '$targetRole'");
+
+                // 3. Ambil User dengan Role tersebut dan Kirim Email
+                if ($targetRole) {
+                    $approvers = \App\Models\User::where('role', $targetRole)->get();
+
+                    if ($approvers->count() > 0) {
+                        foreach ($approvers as $approver) {
+                            if ($approver->email) {
+                                try {
+                                    \Mail::to($approver->email)->send(new WorkOrderNotification($wo, 'need_approval'));
+                                    \Log::info("DEBUG EMAIL STORE: Terkirim ke Approver " . $approver->email);
+                                } catch (\Exception $e) {
+                                    \Log::error('DEBUG EMAIL STORE ERROR: ' . $e->getMessage());
+                                }
+                            }
+                        }
+                    } else {
+                        \Log::warning("DEBUG EMAIL STORE: Role '$targetRole' ditemukan mappingnya, tapi TIDAK ADA USER di database dengan role itu.");
+                    }
+                } else {
+                    // Fallback: Jika departemen tidak ada di mapping, coba cari Manager umum
+                    \Log::warning("DEBUG EMAIL STORE: Mapping tidak ketemu. Mencoba fallback ke pencarian divisi manual.");
+
+                    $approvers = \App\Models\User::where('divisi', $targetDept)
+                        ->whereIn('role', ['manager', 'spv', 'supervisor', 'dept_head'])
+                        ->get();
+
+                    foreach ($approvers as $approver) {
+                        if ($approver->email) \Mail::to($approver->email)->send(new WorkOrderNotification($wo, 'need_approval'));
+                    }
+                }
+            }
+            // =========================================================================
+
             DB::commit();
-            return redirect()->back()->with('success', 'Tiket berhasil dibuat.');
+            return redirect()->back()->with('success', $pesanSukses);
         } catch (\Exception $e) {
             DB::rollback();
-            // Debugging: Tampilkan error spesifik biar tau salah dimana
             return redirect()->back()->with('error', 'Gagal menyimpan: ' . $e->getMessage());
         }
     }
+
+    public function getDepartmentsByPlant($plant_id)
+    {
+        try {
+            // 1. Cari Data Plant
+            $plant = Plant::find($plant_id);
+
+            // Jika plant tidak ditemukan, kembalikan array kosong (jangan error)
+            if (!$plant) {
+                return response()->json([]);
+            }
+
+            // 2. Bersihkan nama plant (hapus spasi depan/belakang)
+            $name = trim($plant->name);
+
+            // 3. Tentukan Departemen Spesifik (Berdasarkan Logic JS Anda sebelumnya)
+            $specificDept = '';
+
+            // Logic Mapping (Switch Case)
+            switch ($name) {
+                // Group Low Voltage
+                case 'Plant A':
+                case 'Plant C':
+                case 'Plant F':
+                case 'MC Cable':
+                case 'Autowire':
+                    $specificDept = 'Low Voltage';
+                    break;
+
+                // Group Medium Voltage
+                case 'Plant B':
+                case 'Plant D':
+                    $specificDept = 'Medium Voltage';
+                    break;
+
+                // Group Fiber Optic
+                case 'Plant E':
+                case 'FO':
+                    $specificDept = 'FO';
+                    break;
+
+                // Group Support Components (SC) / RM
+                case 'RM 1':
+                case 'RM 2':
+                case 'RM 3':
+                case 'RM 5':
+                case 'RM Office':
+                    $specificDept = 'SC';
+                    break;
+
+                // Group Quality (QR)
+                case 'QC FO':
+                case 'QC LAB':
+                case 'QC LV':
+                case 'QC MV':
+                case 'QR':
+                    $specificDept = 'QR';
+                    break;
+
+                // Group Lainnya
+                case 'Konstruksi':
+                    $specificDept = 'FH';
+                    break;
+                case 'Workshop Electric':
+                case 'MT':
+                    $specificDept = 'MT';
+                    break;
+                case 'Gudang Jadi':
+                case 'SS':
+                    $specificDept = 'SS';
+                    break;
+                case 'Plant Tools':
+                case 'PE':
+                    $specificDept = 'PE';
+                    break;
+                case 'Planning':
+                    $specificDept = 'Planning';
+                    break;
+                case 'IT':
+                    $specificDept = 'IT';
+                    break;
+                case 'GA':
+                    $specificDept = 'GA';
+                    break;
+                case 'FA':
+                    $specificDept = 'FA';
+                    break;
+                case 'Marketing':
+                    $specificDept = 'Marketing';
+                    break;
+                case 'HC':
+                    $specificDept = 'HC';
+                    break;
+                case 'Sales':
+                    $specificDept = 'Sales';
+                    break;
+
+                default:
+                    $specificDept = 'General'; // Default jika nama plant tidak dikenali
+                    break;
+            }
+
+            // 4. Buat Daftar Akhir Departemen
+            // Kita gabungkan departemen spesifik tadi dengan departemen umum (GA, IT, dll)
+            // agar user tetap punya pilihan departemen pendukung.
+
+            $departments = [
+                $specificDept, // Dept Utama (Hasil mapping di atas)
+                'GA',
+                'IT',
+                'HC',
+                'Safety',
+                'Planning',
+                'Maintenance'
+            ];
+
+            // Hapus duplikat (misal specificDept = 'GA', maka 'GA' jangan muncul 2x)
+            $departments = array_unique($departments);
+
+            // Re-index array supaya rapi di JSON (0, 1, 2...)
+            $departments = array_values($departments);
+
+            return response()->json($departments);
+        } catch (\Exception $e) {
+            // Log error untuk developer (cek di storage/logs/laravel.log)
+            \Log::error('Error getDepartmentsByPlant: ' . $e->getMessage());
+
+            // Return array kosong atau pesan error format JSON (jangan 500 crash)
+            return response()->json(['General'], 200);
+        }
+    }
+
     public function approveByTechnical(Request $request, $id)
     {
-        $ticket = WorkOrderGeneralAffair::findOrFail($id);
-        $userRole = Auth::user()->role; // Misal: 'mt.admin', 'fh.admin'
+        try {
+            $ticket = WorkOrderGeneralAffair::findOrFail($id);
+            $user = Auth::user();
 
-        // 1. Validasi Hak Akses (Authorization)
-        // Tiket untuk MT hanya boleh diapprove mt.admin, dst.
-        $canApprove = false;
+            // 1. AMBIL DEPT TUJUAN
+            $targetDept = $ticket->department;
 
-        if ($ticket->department == 'MT' && $userRole == 'mt.admin') $canApprove = true;
-        if ($ticket->department == 'FH' && $userRole == 'fh.admin') $canApprove = true;
-        if ($ticket->department == 'ENG' && $userRole == 'eng.admin') $canApprove = true;
+            $isAuthorized = false;
 
-        if (!$canApprove) {
-            return back()->with('error', 'Anda tidak berhak meng-approve tiket departemen lain.');
+            // --- A. LOGIKA UTAMA: Manager/SPV dari Dept Tujuan ---
+            if (in_array($user->role, ['manager', 'spv', 'supervisor', 'dept_head']) && $user->divisi == $targetDept) {
+                $isAuthorized = true;
+            }
+
+            // --- B. LOGIKA ADMIN GA ---
+            if (($user->role == 'admin_ga' || $user->divisi == 'General Affair') && in_array($targetDept, ['GA', 'General Affair'])) {
+                $isAuthorized = true;
+            }
+
+            // --- C. LOGIKA ADMIN TEKNIS ---
+            if ($user->role == 'eng.admin' && (
+                str_contains($targetDept, 'Engineering') || str_contains($targetDept, 'SC') ||
+                str_contains($targetDept, 'ENG') || in_array($targetDept, ['Low Voltage', 'Medium Voltage', 'PE', 'FO', 'QR', 'SS'])
+            )) {
+                $isAuthorized = true;
+            }
+            if ($user->role == 'mt.admin' && (str_contains($targetDept, 'Maintenance') || $targetDept == 'MT')) {
+                $isAuthorized = true;
+            }
+            if ($user->role == 'fh.admin' && (str_contains($targetDept, 'Facility') || $targetDept == 'FH')) {
+                $isAuthorized = true;
+            }
+
+            // --- EKSEKUSI ---
+            if (!$isAuthorized) {
+                return back()->with('error', 'Anda tidak memiliki otoritas untuk menyetujui tiket Departemen: ' . $targetDept);
+            }
+
+            // =========================================================
+            // SKENARIO 1: JIKA DITOLAK (DECLINE)
+            // =========================================================
+            if ($request->action === 'decline') {
+                // 1. Update Database
+                $ticket->update([
+                    'status' => 'rejected',
+                    'rejection_reason' => $request->reason
+                ]);
+
+                // 2. Kirim Email ke Pelapor
+                $pelapor = \App\Models\User::find($ticket->requester_id);
+                if ($pelapor && $pelapor->email) {
+                    try {
+                        \Mail::to($pelapor->email)->send(new \App\Mail\WorkOrderNotification($ticket, 'rejected'));
+                    } catch (\Exception $e) {
+                        \Log::error('Gagal kirim email reject: ' . $e->getMessage());
+                    }
+                }
+
+                // 3. Catat History
+                \App\Models\GeneralAffair\WorkOrderGaHistory::create([
+                    'work_order_id' => $ticket->id,
+                    'user_id'       => $user->id,
+                    'action'        => 'Rejected',
+                    'description'   => 'Tiket ditolak oleh ' . $user->name . '. Alasan: ' . $request->reason
+                ]);
+
+                return back()->with('success', 'Tiket berhasil ditolak.');
+            }
+
+            // =========================================================
+            // SKENARIO 2: JIKA DISETUJUI (APPROVE)
+            // =========================================================
+
+            // 1. Update Database (PENTING!)
+            $ticket->update(['status' => 'pending']);
+
+            // 2. Kirim Email ke GA Admin (Tipe: 'ga_new')
+            try {
+                // Pastikan email GA Admin benar
+                \Mail::to('ga_admin@company.com')->send(new \App\Mail\WorkOrderNotification($ticket, 'ga_new'));
+                \Log::info('DEBUG: Email notifikasi ke GA Admin terkirim.');
+            } catch (\Exception $e) {
+                \Log::error('Gagal kirim email ke GA: ' . $e->getMessage());
+            }
+
+            // 3. Catat History
+            \App\Models\GeneralAffair\WorkOrderGaHistory::create([
+                'work_order_id' => $ticket->id,
+                'user_id'       => $user->id,
+                'action'        => 'Approved',
+                'description'   => 'Tiket disetujui oleh Manager/Admin: ' . $user->name
+            ]);
+
+            return back()->with('success', 'Tiket disetujui dan diteruskan ke GA.');
+        } catch (\Exception $e) {
+            return back()->with('error', 'Terjadi kesalahan: ' . $e->getMessage());
         }
-
-        // 2. Logic Decline
-        if ($request->action === 'decline') {
-            $ticket->update(['status' => 'rejected_by_technical', 'note' => $request->reason]);
-            return back()->with('error', 'Tiket ditolak.');
-        }
-
-        // 3. Logic Approve -> Lempar ke GA
-        $ticket->update([
-            'status' => 'waiting_ga_approval', // Status 2: Menunggu GA
-            'approved_tech_by' => Auth::id(),
-            'approved_tech_at' => now(),
-        ]);
-
-        return back()->with('success', 'Disetujui. Menunggu persetujuan GA.');
     }
+
     public function approveByGA(Request $request, $id)
     {
+        dd("BERHASIL MASUK KE FUNGSI INI"); // <--- Tambahkan ini
         // 1. Validasi Role GA
         if (Auth::user()->role !== 'ga.admin') {
             abort(403, 'Hanya GA Admin yang bisa akses.');
@@ -457,20 +865,55 @@ class GeneralAffairController extends Controller
         // 2. Decline
         if ($request->action === 'decline') {
             $ticket->update(['status' => 'rejected_by_ga', 'note' => $request->reason]);
+
+            // --- EMAIL REJECT ---
+            $pelapor = \App\Models\User::find($ticket->requester_id);
+            if ($pelapor && $pelapor->email) {
+                try {
+                    \Mail::to($pelapor->email)->send(new \App\Mail\WorkOrderNotification($ticket, 'rejected'));
+                } catch (\Exception $e) {
+                    \Log::error('Email Reject Gagal: ' . $e->getMessage());
+                }
+            }
             return back()->with('error', 'Tiket ditolak GA.');
         }
 
-        // 3. Approve -> On Process (Bisa ubah target date/dept)
+        // 3. Approve -> On Process
         $ticket->update([
-            'status' => 'on_process', // Status 3: Final
-
-            // GA Berhak mengubah/finalisasi data ini
+            'status' => 'on_process',
             'department'             => $request->department,
             'target_completion_date' => $request->target_completion_date,
-
             'approved_ga_by' => Auth::id(),
             'approved_ga_at' => now(),
         ]);
+
+        // ====================================================================
+        // 4. LOGIKA EMAIL DENGAN DEBUGGING
+        // ====================================================================
+
+        // Tulis ke log bahwa proses update DB selesai
+        \Log::info('DEBUG EMAIL: Update DB Berhasil. Mencari pelapor ID: ' . $ticket->requester_id);
+
+        $pelapor = \App\Models\User::find($ticket->requester_id);
+
+        if ($pelapor) {
+            // Cek apakah pelapor punya email
+            \Log::info('DEBUG EMAIL: Pelapor ditemukan -> ' . $pelapor->name . ' (' . $pelapor->email . ')');
+
+            if (!empty($pelapor->email)) {
+                try {
+                    \Mail::to($pelapor->email)->send(new \App\Mail\WorkOrderNotification($ticket, 'approved'));
+                    \Log::info('DEBUG EMAIL: Fungsi Mail::send telah dieksekusi.');
+                } catch (\Exception $e) {
+                    \Log::error('DEBUG EMAIL: Gagal kirim email (Exception): ' . $e->getMessage());
+                }
+            } else {
+                \Log::warning('DEBUG EMAIL: Field email pelapor KOSONG.');
+            }
+        } else {
+            \Log::error('DEBUG EMAIL: Data User Pelapor TIDAK DITEMUKAN di database.');
+        }
+        // ====================================================================
 
         return back()->with('success', 'Tiket resmi diproses.');
     }
@@ -484,8 +927,8 @@ class GeneralAffairController extends Controller
     {
         // 1. Validasi Input
         $request->validate([
-            'action' => 'required|in:approve,reject', // Input dari tombol Approve/Reject
-            'reason' => 'required_if:action,reject',  // Wajib isi alasan jika reject
+            'action' => 'required|in:approve,reject',
+            'reason' => 'required_if:action,reject',
         ]);
 
         try {
@@ -495,18 +938,12 @@ class GeneralAffairController extends Controller
             $wo = WorkOrderGeneralAffair::findOrFail($id);
 
             // 3. Tentukan Status Baru
-            // Jika Approve -> 'approved' (Bisa diganti 'on_process' jika alurnya langsung dikerjakan)
-            // Jika Reject -> 'rejected'
-            $newStatus = ($request->action === 'approve') ? 'approved' : 'rejected';
+            $newStatus = ($request->action === 'approve') ? 'in_progress' : 'rejected';
 
             // 4. Update Tabel Utama
             $wo->update([
                 'status' => $newStatus,
-
-                // Update kolom rejection_reason (yang dibuat di migration Langkah 1)
                 'rejection_reason' => ($request->action === 'reject') ? $request->reason : null,
-
-                // Mencatat siapa yang memproses
                 'processed_by' => Auth::id(),
                 'processed_by_name' => Auth::user()->name,
                 'updated_at' => Carbon::now(),
@@ -516,18 +953,47 @@ class GeneralAffairController extends Controller
             WorkOrderGaHistory::create([
                 'work_order_id' => $wo->id,
                 'user_id' => Auth::id(),
-                'action' => ucfirst($newStatus), // 'Approved' atau 'Rejected'
+                'action' => ucfirst($newStatus),
                 'description' => $request->action === 'reject'
                     ? "Permintaan ditolak. Alasan: " . $request->reason
-                    : "Permintaan disetujui oleh GA.",
+                    : "Permintaan disetujui oleh GA dan sedang dikerjakan.",
                 'created_at' => Carbon::now(),
             ]);
 
+            // =================================================================
+            // 6. [NEW] EMAIL NOTIFIKASI KE PELAPOR
+            // =================================================================
+
+            // Debug Log: Mulai proses email
+            \Log::info('DEBUG EMAIL GA PROCESS: Mulai mencari pelapor ID ' . $wo->requester_id);
+
+            $pelapor = \App\Models\User::find($wo->requester_id);
+
+            if ($pelapor && $pelapor->email) {
+                try {
+                    if ($request->action === 'approve') {
+                        // Kirim notifikasi APPROVED (Bahwa tiket sudah diproses/in_progress)
+                        \Mail::to($pelapor->email)->send(new \App\Mail\WorkOrderNotification($wo, 'approved'));
+                        \Log::info('DEBUG EMAIL GA PROCESS: Email Approved terkirim ke ' . $pelapor->email);
+                    } elseif ($request->action === 'reject') {
+                        // Kirim notifikasi REJECTED
+                        \Mail::to($pelapor->email)->send(new \App\Mail\WorkOrderNotification($wo, 'rejected'));
+                        \Log::info('DEBUG EMAIL GA PROCESS: Email Rejected terkirim ke ' . $pelapor->email);
+                    }
+                } catch (\Exception $e) {
+                    // Catch error agar transaksi database TIDAK rollback cuma gara-gara email gagal
+                    \Log::error('DEBUG EMAIL GA PROCESS ERROR: ' . $e->getMessage());
+                }
+            } else {
+                \Log::warning('DEBUG EMAIL GA PROCESS: Pelapor tidak ditemukan atau tidak punya email.');
+            }
+            // =================================================================
+
             DB::commit();
 
-            // 6. Redirect kembali dengan pesan sukses
+            // 7. Redirect kembali dengan pesan sukses
             $message = ($request->action === 'approve')
-                ? 'Work Order berhasil disetujui.'
+                ? 'Work Order berhasil disetujui dan diproses.'
                 : 'Work Order berhasil ditolak.';
 
             return redirect()->back()->with('success', $message);
@@ -566,53 +1032,99 @@ class GeneralAffairController extends Controller
     // --- UPDATE STATUS PROGRESS (OLEH GA ADMIN) ---
     public function updateStatus(Request $request, $id)
     {
-        // DEBUG DD SUDAH DIHAPUS. LANGSUNG EKSEKUSI.
         try {
             $ticket = WorkOrderGeneralAffair::findOrFail($id);
 
-            $request->validate([
+            // 1. Validasi Input
+            // Kita buat validation rules dinamis. 
+            // Kalau status 'cancelled', 'cancellation_note' wajib diisi.
+            $rules = [
                 'status'            => 'required',
                 'processed_by_name' => 'required|string',
-            ]);
+                'category'          => 'required',
+            ];
 
+            if ($request->status === 'cancelled') {
+                $rules['cancellation_note'] = 'required|string|min:5';
+            }
+
+            $request->validate($rules);
+
+            // 2. Siapkan Array Data Dasar
             $dataToUpdate = [
                 'status'            => $request->status,
                 'processed_by_name' => $request->processed_by_name,
+                'category'          => $request->category,
             ];
 
-            // Update Dept jika diubah
+            // --- SKENARIO 1: ON PROGRESS ---
+            if ($request->status === 'on_progress') {
+                $dataToUpdate['actual_start_date'] = $request->start_date ?? $ticket->actual_start_date ?? now();
+            }
+
+            // --- SKENARIO 2: COMPLETED (SELESAI) ---
+            if ($request->status === 'completed') {
+                // Upload Foto Selesai (Jika ada)
+                if ($request->hasFile('completion_photo')) {
+                    $dataToUpdate['photo_completed_path'] = $request->file('completion_photo')->store('wo_ga_completed', 'public');
+                }
+
+                // Simpan Tanggal & Catatan
+                $dataToUpdate['actual_completion_date'] = $request->actual_completion_date ?? now();
+                $dataToUpdate['completion_note'] = $request->completion_note;
+
+                // Bersihkan data cancel (jaga-jaga)
+                $dataToUpdate['cancellation_note'] = null;
+            }
+
+            // --- SKENARIO 3: CANCELLED (DIBATALKAN) ---
+            if ($request->status === 'cancelled') {
+                // Simpan Alasan Pembatalan
+                $dataToUpdate['cancellation_note'] = $request->cancellation_note;
+
+                // HAPUS data penyelesaian (Karena batal, berarti tidak selesai)
+                $dataToUpdate['actual_completion_date'] = null;
+                $dataToUpdate['completion_note'] = null;
+                $dataToUpdate['photo_completed_path'] = null;
+            }
+
+            // --- UPDATE DEPT & TARGET DATE (Jika ada perubahan) ---
             if ($request->filled('department')) {
                 $dataToUpdate['department'] = $request->department;
             }
-
-            // Jika Selesai (Completed) -> Wajib Foto
-            if ($request->status === 'completed') {
-                $request->validate(['completion_photo' => 'required|image|max:5120']);
-                if ($request->hasFile('completion_photo')) {
-                    $dataToUpdate['photo_completed_path'] = $request->file('completion_photo')->store('wo_ga_completed', 'public');
-                    $dataToUpdate['completed_at'] = now();
-                    $dataToUpdate['actual_completion_date'] = now(); // Isi actual date
-                }
-            }
-
-            // Revisi Target Date
             if ($request->filled('target_date')) {
                 $dataToUpdate['target_completion_date'] = $request->target_date;
             }
 
+            // 3. Eksekusi Update ke Database
             $ticket->update($dataToUpdate);
 
-            // History
-            WorkOrderGaHistory::create([
+            // 4. Kirim Email Notifikasi
+            $pelapor = \App\Models\User::find($ticket->requester_id);
+            if ($pelapor && $pelapor->email) {
+                try {
+                    if ($request->status === 'completed') {
+                        \Mail::to($pelapor->email)->send(new \App\Mail\WorkOrderNotification($ticket, 'completed'));
+                    } elseif ($request->status === 'cancelled') {
+                        // Gunakan tipe 'rejected' untuk notifikasi pembatalan
+                        \Mail::to($pelapor->email)->send(new \App\Mail\WorkOrderNotification($ticket, 'rejected'));
+                    }
+                } catch (\Exception $e) {
+                    \Log::error('Gagal kirim email update status: ' . $e->getMessage());
+                }
+            }
+
+            // 5. Simpan History
+            \App\Models\GeneralAffair\WorkOrderGaHistory::create([
                 'work_order_id' => $ticket->id,
-                'user_id'       => Auth::id(),
+                'user_id'       => \Auth::id(),
                 'action'        => 'Status Update',
-                'description'   => 'Status: ' . $request->status . '. PIC: ' . $request->processed_by_name
+                'description'   => "Status diubah menjadi: " . ucfirst($request->status)
             ]);
 
-            return redirect()->back()->with('success', 'Progress tiket berhasil diupdate.');
+            return redirect()->back()->with('success', 'Status berhasil diperbarui.');
         } catch (\Exception $e) {
-            return redirect()->back()->with('error', 'Gagal update status: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Terjadi Kesalahan: ' . $e->getMessage());
         }
     }
 

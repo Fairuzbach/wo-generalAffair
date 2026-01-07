@@ -13,20 +13,25 @@ class WorkOrderGeneralAffair extends Model
 
     protected $table = 'work_order_general_affairs';
 
+    // 1. UPDATE FILLABLE (Agar kolom baru bisa disimpan)
     protected $fillable = [
         'ticket_num',
         'requester_id',
         'requester_nik',
         'requester_name',
-        'requester_department', // <--- Pastikan ini ada!
+        'requester_department',
         'plant',
         'department',
         'category',
         'description',
         'parameter_permintaan',
         'status_permintaan',
-        'rejection_reason',
+        'rejection_reason',     // Alasan Reject
+        'cancellation_note',    // <--- TAMBAHAN PENTING (Alasan Cancel)
+        'completion_note',      // <--- TAMBAHAN PENTING (Catatan Selesai)
         'target_completion_date',
+        'actual_start_date',    // <--- TAMBAHAN PENTING
+        'actual_completion_date', // <--- TAMBAHAN PENTING
         'status',
         'photo_path',
         'photo_completed_path',
@@ -34,13 +39,31 @@ class WorkOrderGeneralAffair extends Model
         'processed_by_name',
         'processed_at',
         'completed_at',
-        'rejected_at'
+        'rejected_at',
+        'approved_ga_by',       // Tambahan untuk tracking approval
+        'approved_ga_at'
     ];
+
+    // 2. TAMBAHKAN CASTS (Agar Tanggal terbaca sebagai Carbon Date di Email)
+    protected $casts = [
+        'actual_completion_date' => 'datetime',
+        'target_completion_date' => 'date',
+        'actual_start_date'      => 'datetime',
+        'processed_at'           => 'datetime',
+        'completed_at'           => 'datetime',
+        'rejected_at'            => 'datetime',
+        'approved_ga_at'         => 'datetime',
+        'created_at'             => 'datetime',
+        'updated_at'             => 'datetime',
+    ];
+
+    // --- RELATIONSHIPS ---
 
     public function user()
     {
         return $this->belongsTo(User::class, 'requester_id');
     }
+
     public function processor()
     {
         return $this->belongsTo(\App\Models\User::class, 'processed_by');
