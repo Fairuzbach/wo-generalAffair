@@ -56,7 +56,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Jalur 2: Admin GA
     Route::post('/wo/approve-ga/{id}', [GeneralAffairController::class, 'approveByGA'])
         ->name('wo.approve_ga');
-    Route::put('/work-order-ga/{id}/process', [GeneralAffairController::class, 'processTicket'])
+    Route::put('/ga/process/{id}', [GeneralAffairController::class, 'processTicket'])
         ->name('work-order-ga.process');
 
     // -----------------------------------------------------------------

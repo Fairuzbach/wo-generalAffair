@@ -46,16 +46,29 @@
 
                 {{-- Export Button (General - Tanpa Centang) --}}
                 {{-- Ini akan mengexport semua data sesuai filter saat ini --}}
-                <button type="submit" formaction="{{ route('ga.export') }}"
-                    class="flex items-center justify-center px-5 py-3 border-2 border-slate-200 text-slate-600 hover:text-emerald-600 hover:border-emerald-500 hover:bg-emerald-50 bg-white rounded-xl transition-all shadow-sm hover:shadow-md font-bold text-xs uppercase"
-                    title="Export Semua Data (Sesuai Filter)">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
-                        </path>
-                    </svg>
-                </button>
-
+                @if (Auth::user()->role === 'ga.admin')
+                    <button type="submit" formaction="{{ route('ga.export') }}"
+                        class="flex items-center justify-center px-5 py-3 border-2 border-slate-200 text-slate-600 hover:text-emerald-600 hover:border-emerald-500 hover:bg-emerald-50 bg-white rounded-xl transition-all shadow-sm hover:shadow-md font-bold text-xs uppercase"
+                        title="Export Semua Data (Sesuai Filter)">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
+                            </path>
+                        </svg>
+                        {{-- Dashboard button --}}
+                    </button>
+                @endif
+                @if (Auth::user()->role === 'ga.admin')
+                    <a href="{{ route('ga.dashboard') }}"
+                        class="flex items-center gap-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white px-5 py-2.5 rounded-sm font-black uppercase tracking-wider shadow-md hover:from-blue-600 hover:to-blue-700 hover:shadow-lg transition-all transform active:scale-95 border-2 border-blue-700/30">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+                                d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6">
+                            </path>
+                        </svg>
+                        <span class="hidden sm:inline">Dashboard</span>
+                    </a>
+                @endif
                 {{-- Create Button --}}
                 <button @click="showCreateModal = true" type="button"
                     class="flex items-center gap-2 bg-yellow-400 text-slate-900 px-5 py-2.5 rounded-sm font-black uppercase tracking-wider shadow-md hover:bg-yellow-300 hover:shadow-lg transition-all transform active:scale-95">
@@ -111,7 +124,8 @@
                 <a href="{{ route('ga.index') }}"
                     class="text-xs font-bold text-red-500 hover:text-red-700 flex items-center gap-1 uppercase tracking-wide transition-colors">
                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M6 18L18 6M6 6l12 12">
                         </path>
                     </svg> Reset Filter
                 </a>
@@ -119,66 +133,69 @@
         </div>
     </form>
 
-    {{-- Bulk Action Bar (MUNCUL SAAT ADA YANG DICENTANG) --}}
-    <div x-show="selected.length > 0" x-transition
-        class="bg-yellow-50 px-5 py-3 border-t border-yellow-200 flex flex-col md:flex-row justify-between items-center gap-4">
+    @if (Auth::user()->role === 'ga.admin')
+        {{-- Bulk Action Bar (MUNCUL SAAT ADA YANG DICENTANG) --}}
+        <div x-show="selected.length > 0" x-transition
+            class="bg-yellow-50 px-5 py-3 border-t border-yellow-200 flex flex-col md:flex-row justify-between items-center gap-4">
 
-        {{-- Counter Info --}}
-        <div class="flex items-center gap-2 text-xs font-bold text-slate-800 uppercase tracking-wider">
-            <span class="flex h-3 w-3 relative"><span
-                    class="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span><span
-                    class="relative inline-flex rounded-full h-3 w-3 bg-yellow-500"></span></span>
-            <span x-text="selected.length"></span> ITEM TERPILIH
-        </div>
+            {{-- Counter Info --}}
+            <div class="flex items-center gap-2 text-xs font-bold text-slate-800 uppercase tracking-wider">
+                <span class="flex h-3 w-3 relative"><span
+                        class="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span><span
+                        class="relative inline-flex rounded-full h-3 w-3 bg-yellow-500"></span></span>
+                <span x-text="selected.length"></span> ITEM TERPILIH
+            </div>
 
-        {{-- Action Buttons --}}
-        <div class="flex flex-wrap gap-4 items-center justify-center">
 
-            {{-- BUTTON 1: DOWNLOAD CHECKLIST (Hanya ID yang dipilih) --}}
-            <form id="exportSelectedForm" action="{{ route('ga.export') }}" method="GET"
-                class="flex items-center">
-                <input type="hidden" name="selected_ids" :value="selected.join(',')">
+            {{-- Action Buttons --}}
+            <div class="flex flex-wrap gap-4 items-center justify-center">
 
-                {{-- Loop Filter juga di sini agar aman --}}
-                @foreach (request()->except(['selected_ids', 'page']) as $key => $value)
-                    <input type="hidden" name="{{ $key }}" value="{{ $value }}">
-                @endforeach
+                {{-- BUTTON 1: DOWNLOAD CHECKLIST (Hanya ID yang dipilih) --}}
+                <form id="exportSelectedForm" action="{{ route('ga.export') }}" method="GET"
+                    class="flex items-center">
+                    <input type="hidden" name="selected_ids" :value="selected.join(',')">
 
-                <button type="submit"
-                    class="text-xs font-bold text-slate-800 hover:text-blue-700 uppercase flex items-center gap-1 transition-colors">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
-                    </svg>
-                    Download Checklist (<span x-text="selected.length"></span>)
+                    {{-- Loop Filter juga di sini agar aman --}}
+                    @foreach (request()->except(['selected_ids', 'page']) as $key => $value)
+                        <input type="hidden" name="{{ $key }}" value="{{ $value }}">
+                    @endforeach
+
+                    <button type="submit"
+                        class="text-xs font-bold text-slate-800 hover:text-blue-700 uppercase flex items-center gap-1 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                        </svg>
+                        Download Checklist (<span x-text="selected.length"></span>)
+                    </button>
+                </form>
+
+                {{-- BUTTON 2: EXPORT SEMUA FILTERED (Hijau - Tidak peduli checklist) --}}
+                <form action="{{ route('ga.export') }}" method="GET"
+                    class="flex items-center border-l border-slate-300 pl-4">
+                    {{-- Loop semua filter yang ada di URL saat ini ke dalam input hidden --}}
+                    @foreach (request()->except(['selected_ids', 'page']) as $key => $value)
+                        <input type="hidden" name="{{ $key }}" value="{{ $value }}">
+                    @endforeach
+
+                    {{-- Tombol Submit --}}
+                    <button type="submit"
+                        class="text-xs font-bold text-green-600 hover:text-green-800 uppercase flex items-center gap-1 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
+                            </path>
+                        </svg>
+                        Export Semua (Filter)
+                    </button>
+                </form>
+
+                {{-- BUTTON 3: BATAL --}}
+                <button type="button" @click="clearSelection()"
+                    class="text-xs font-bold text-red-400 hover:text-red-600 uppercase transition-colors ml-2">
+                    Batal
                 </button>
-            </form>
-
-            {{-- BUTTON 2: EXPORT SEMUA FILTERED (Hijau - Tidak peduli checklist) --}}
-            <form action="{{ route('ga.export') }}" method="GET"
-                class="flex items-center border-l border-slate-300 pl-4">
-                {{-- Loop semua filter yang ada di URL saat ini ke dalam input hidden --}}
-                @foreach (request()->except(['selected_ids', 'page']) as $key => $value)
-                    <input type="hidden" name="{{ $key }}" value="{{ $value }}">
-                @endforeach
-
-                {{-- Tombol Submit --}}
-                <button type="submit"
-                    class="text-xs font-bold text-green-600 hover:text-green-800 uppercase flex items-center gap-1 transition-colors">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
-                        </path>
-                    </svg>
-                    Export Semua (Filter)
-                </button>
-            </form>
-
-            {{-- BUTTON 3: BATAL --}}
-            <button type="button" @click="clearSelection()"
-                class="text-xs font-bold text-red-400 hover:text-red-600 uppercase transition-colors ml-2">
-                Batal
-            </button>
+            </div>
         </div>
-    </div>
+    @endif
 </div>

@@ -41,7 +41,7 @@ class WorkOrderExport implements FromCollection, WithHeadings, WithMapping, Shou
     }
 
     // =========================================================================
-    // 1. HEADER KOLOM (DITAMBAH AGAR LENGKAP)
+    // 1. HEADER KOLOM
     // =========================================================================
     public function headings(): array
     {
@@ -67,7 +67,7 @@ class WorkOrderExport implements FromCollection, WithHeadings, WithMapping, Shou
     }
 
     // =========================================================================
-    // 2. MAPPING DATA (LOGIKA PENGISIAN)
+    // 2. MAPPING DATA
     // =========================================================================
     public function map($ticket): array
     {
@@ -78,25 +78,15 @@ class WorkOrderExport implements FromCollection, WithHeadings, WithMapping, Shou
         $user = $ticket->user;
         $namaPemohon = $user ? $user->name : ($ticket->requester_name ?? '-');
         $divisiPemohon = $user ? ($user->divisi ?? '-') : '-';
-
         $lokasi = $ticket->plantInfo->plant_name ?? $ticket->plantInfo->name ?? $ticket->plant;
 
-        // B. Format Tanggal Indonesia (Lengkap dengan Jam)
-        $tglDibuat = $ticket->created_at
-            ? Carbon::parse($ticket->created_at)->setTimezone('Asia/Jakarta')->locale('id')->isoFormat('DD MMM YYYY HH:mm')
-            : '-';
-        $tglTarget = $ticket->target_completion_date
-            ? Carbon::parse($ticket->target_completion_date)->locale('id')->isoFormat('DD MMM YYYY')
-            : '-';
+        // B. Format Tanggal
+        $tglDibuat = $ticket->created_at ? Carbon::parse($ticket->created_at)->setTimezone('Asia/Jakarta')->locale('id')->isoFormat('DD MMM YYYY HH:mm') : '-';
+        $tglTarget = $ticket->target_completion_date ? Carbon::parse($ticket->target_completion_date)->locale('id')->isoFormat('DD MMM YYYY') : '-';
+        $tglMulai = $ticket->actual_start_date ? Carbon::parse($ticket->actual_start_date)->setTimezone('Asia/Jakarta')->locale('id')->isoFormat('DD MMM YYYY HH:mm') : '-';
+        $tglSelesai = $ticket->actual_completion_date ? Carbon::parse($ticket->actual_completion_date)->setTimezone('Asia/Jakarta')->locale('id')->isoFormat('DD MMM YYYY HH:mm') : '-';
 
-        $tglMulai = $ticket->actual_start_date
-            ? Carbon::parse($ticket->actual_start_date)->setTimezone('Asia/Jakarta')->locale('id')->isoFormat('DD MMM YYYY HH:mm')
-            : '-';
-        $tglSelesai = $ticket->actual_completion_date
-            ? Carbon::parse($ticket->actual_completion_date)->setTimezone('Asia/Jakarta')->locale('id')->isoFormat('DD MMM YYYY HH:mm')
-            : '-';
-
-        // C. Hitung Durasi (KPI Lead Time)
+        // C. Hitung Durasi
         $durasi = '-';
         if ($ticket->actual_start_date && $ticket->actual_completion_date) {
             $start = Carbon::parse($ticket->actual_start_date);
@@ -105,11 +95,8 @@ class WorkOrderExport implements FromCollection, WithHeadings, WithMapping, Shou
             $durasi = $hours . ' Jam';
         }
 
-        // D. Gabungkan Catatan
-        $catatanAkhir = $ticket->completion_note
-            ?? $ticket->cancellation_note
-            ?? $ticket->rejection_reason
-            ?? '-';
+        // D. Catatan
+        $catatanAkhir = $ticket->completion_note ?? $ticket->cancellation_note ?? $ticket->rejection_reason ?? '-';
 
         return [
             $rowNumber,
@@ -121,7 +108,7 @@ class WorkOrderExport implements FromCollection, WithHeadings, WithMapping, Shou
             $ticket->parameter_permintaan ?? '-',
             $ticket->category,
             $ticket->description,
-            strtoupper(str_replace('_', ' ', $ticket->status)),
+            strtoupper(str_replace('_', ' ', $ticket->status)), // Format Status ke Huruf Besar
             $tglDibuat,
             $tglTarget,
             $tglMulai,
@@ -133,7 +120,7 @@ class WorkOrderExport implements FromCollection, WithHeadings, WithMapping, Shou
     }
 
     // =========================================================================
-    // 3. STYLING (ENHANCED DESIGN)
+    // 3. STYLING & LOGIKA WARNA
     // =========================================================================
     public function registerEvents(): array
     {
@@ -143,41 +130,54 @@ class WorkOrderExport implements FromCollection, WithHeadings, WithMapping, Shou
                 $lastColumn = $sheet->getHighestColumn();
                 $lastRow = $sheet->getHighestRow();
 
-                // Auto Filter
-                $fullRange = 'A1:' . $lastColumn . $lastRow;
-                $sheet->setAutoFilter($fullRange);
-
-                // Freeze Header
+                // Setup Table
+                $sheet->setAutoFilter('A1:' . $lastColumn . $lastRow);
                 $sheet->freezePane('A2');
-
-                // Set Row Height untuk Header
                 $sheet->getRowDimension(1)->setRowHeight(30);
 
-                // Set Column Widths (Manual untuk hasil optimal)
-                $sheet->getColumnDimension('A')->setWidth(6);   // NO
-                $sheet->getColumnDimension('B')->setWidth(18);  // ID TIKET
-                $sheet->getColumnDimension('C')->setWidth(20);  // PEMOHON
-                $sheet->getColumnDimension('D')->setWidth(18);  // DIVISI
-                $sheet->getColumnDimension('E')->setWidth(15);  // LOKASI
-                $sheet->getColumnDimension('F')->setWidth(18);  // DEPT
-                $sheet->getColumnDimension('G')->setWidth(15);  // PARAMETER
-                $sheet->getColumnDimension('H')->setWidth(12);  // KATEGORI
-                $sheet->getColumnDimension('I')->setWidth(40);  // DESKRIPSI
-                $sheet->getColumnDimension('J')->setWidth(18);  // STATUS
-                $sheet->getColumnDimension('K')->setWidth(18);  // TGL DIBUAT
-                $sheet->getColumnDimension('L')->setWidth(15);  // TGL TARGET
-                $sheet->getColumnDimension('M')->setWidth(18);  // MULAI
-                $sheet->getColumnDimension('N')->setWidth(18);  // SELESAI
-                $sheet->getColumnDimension('O')->setWidth(14);  // DURASI
-                $sheet->getColumnDimension('P')->setWidth(20);  // PIC
-                $sheet->getColumnDimension('Q')->setWidth(40);  // CATATAN
+                // Setup Column Widths
+                $widths = [
+                    'A' => 6,
+                    'B' => 18,
+                    'C' => 20,
+                    'D' => 18,
+                    'E' => 15,
+                    'F' => 18,
+                    'G' => 15,
+                    'H' => 12,
+                    'I' => 40,
+                    'J' => 18,
+                    'K' => 18,
+                    'L' => 15,
+                    'M' => 18,
+                    'N' => 18,
+                    'O' => 14,
+                    'P' => 20,
+                    'Q' => 40
+                ];
+                foreach ($widths as $col => $width) {
+                    $sheet->getColumnDimension($col)->setWidth($width);
+                }
 
-                // Text Wrap untuk kolom deskripsi dan catatan
+                // Text Wrap
                 $sheet->getStyle('I2:I' . $lastRow)->getAlignment()->setWrapText(true);
                 $sheet->getStyle('Q2:Q' . $lastRow)->getAlignment()->setWrapText(true);
 
-                // Conditional Formatting untuk Status
+                // --- LOOP SETIAP BARIS ---
                 for ($row = 2; $row <= $lastRow; $row++) {
+
+                    // 1. ZEBRA STRIPING (BACKGROUND ABU SELANG-SELING)
+                    // Dijalankan PERTAMA agar tidak menimpa warna status/kategori
+                    if ($row % 2 == 0) {
+                        $sheet->getStyle('A' . $row . ':' . $lastColumn . $row)->applyFromArray([
+                            'fill' => [
+                                'fillType' => Fill::FILL_SOLID,
+                                'startColor' => ['argb' => 'FFF8F9FA'],
+                            ]
+                        ]);
+                    }
+
+                    // 2. WARNA STATUS (KOLOM J)
                     $status = $sheet->getCell('J' . $row)->getValue();
                     $statusColor = $this->getStatusColor($status);
 
@@ -189,7 +189,7 @@ class WorkOrderExport implements FromCollection, WithHeadings, WithMapping, Shou
                             ],
                             'font' => [
                                 'bold' => true,
-                                'color' => ['argb' => 'FFFFFFFF']
+                                'color' => ['argb' => 'FFFFFFFF'] // Font Putih
                             ],
                             'alignment' => [
                                 'horizontal' => Alignment::HORIZONTAL_CENTER,
@@ -197,27 +197,30 @@ class WorkOrderExport implements FromCollection, WithHeadings, WithMapping, Shou
                         ]);
                     }
 
-                    // Highlight kategori BERAT/HIGH
-                    $kategori = $sheet->getCell('H' . $row)->getValue();
-                    if (in_array(strtoupper($kategori), ['BERAT', 'HIGH'])) {
+                    // 3. WARNA KATEGORI (KOLOM H) - BERAT, SEDANG, RINGAN
+                    $kategori = strtoupper($sheet->getCell('H' . $row)->getValue());
+                    $kategoriColor = null;
+
+                    if (in_array($kategori, ['BERAT', 'HIGH'])) {
+                        $kategoriColor = 'FFEF4444'; // Merah
+                    } elseif (in_array($kategori, ['SEDANG', 'MEDIUM'])) {
+                        $kategoriColor = 'FFF59E0B'; // Oranye/Kuning
+                    } elseif (in_array($kategori, ['RINGAN', 'LOW'])) {
+                        $kategoriColor = 'FF10B981'; // Hijau
+                    }
+
+                    if ($kategoriColor) {
                         $sheet->getStyle('H' . $row)->applyFromArray([
                             'fill' => [
                                 'fillType' => Fill::FILL_SOLID,
-                                'startColor' => ['argb' => 'FFFF6B6B'],
+                                'startColor' => ['argb' => $kategoriColor],
                             ],
                             'font' => [
                                 'bold' => true,
-                                'color' => ['argb' => 'FFFFFFFF']
-                            ]
-                        ]);
-                    }
-
-                    // Zebra Striping untuk readability
-                    if ($row % 2 == 0) {
-                        $sheet->getStyle('A' . $row . ':' . $lastColumn . $row)->applyFromArray([
-                            'fill' => [
-                                'fillType' => Fill::FILL_SOLID,
-                                'startColor' => ['argb' => 'FFF8F9FA'],
+                                'color' => ['argb' => 'FFFFFFFF'] // Font Putih
+                            ],
+                            'alignment' => [
+                                'horizontal' => Alignment::HORIZONTAL_CENTER,
                             ]
                         ]);
                     }
@@ -232,59 +235,24 @@ class WorkOrderExport implements FromCollection, WithHeadings, WithMapping, Shou
         $lastColumn = $sheet->getHighestColumn();
 
         return [
-            // Style Header (Gradient Blue)
+            // Style Header (Biru Tua)
             1 => [
-                'font' => [
-                    'bold' => true,
-                    'size' => 11,
-                    'color' => ['argb' => 'FFFFFFFF']
-                ],
-                'fill' => [
-                    'fillType' => Fill::FILL_SOLID,
-                    'startColor' => ['argb' => 'FF1E3A8A'], // Biru Tua seperti logo
-                ],
-                'alignment' => [
-                    'horizontal' => Alignment::HORIZONTAL_CENTER,
-                    'vertical' => Alignment::VERTICAL_CENTER,
-                    'wrapText' => true,
-                ],
-                'borders' => [
-                    'allBorders' => [
-                        'borderStyle' => Border::BORDER_MEDIUM,
-                        'color' => ['argb' => 'FF000000'],
-                    ],
-                ],
+                'font' => ['bold' => true, 'size' => 11, 'color' => ['argb' => 'FFFFFFFF']],
+                'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF1E3A8A']],
+                'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER, 'vertical' => Alignment::VERTICAL_CENTER, 'wrapText' => true],
+                'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_MEDIUM, 'color' => ['argb' => 'FF000000']]],
             ],
-
             // Border All Cells
             'A1:' . $lastColumn . $lastRow => [
-                'borders' => [
-                    'allBorders' => [
-                        'borderStyle' => Border::BORDER_THIN,
-                        'color' => ['argb' => 'FFD1D5DB'],
-                    ],
-                ],
-                'alignment' => [
-                    'vertical' => Alignment::VERTICAL_TOP,
-                ],
+                'borders' => ['allBorders' => ['borderStyle' => Border::BORDER_THIN, 'color' => ['argb' => 'FFD1D5DB']]],
+                'alignment' => ['vertical' => Alignment::VERTICAL_TOP],
             ],
-
-            // Center align untuk kolom tertentu
-            'A2:A' . $lastRow => [
-                'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER]
-            ],
-            'B2:B' . $lastRow => [
-                'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER]
-            ],
-            'H2:H' . $lastRow => [
-                'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER]
-            ],
-            'J2:J' . $lastRow => [
-                'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER]
-            ],
-            'O2:O' . $lastRow => [
-                'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER]
-            ],
+            // Center Align Columns
+            'A2:A' . $lastRow => ['alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER]],
+            'B2:B' . $lastRow => ['alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER]],
+            'H2:H' . $lastRow => ['alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER]],
+            'J2:J' . $lastRow => ['alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER]],
+            'O2:O' . $lastRow => ['alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER]],
         ];
     }
 
@@ -293,16 +261,29 @@ class WorkOrderExport implements FromCollection, WithHeadings, WithMapping, Shou
     // =========================================================================
     private function getStatusColor($status)
     {
+        $statusKey = strtoupper(trim($status));
+
         $statusMap = [
-            'COMPLETED' => 'FF10B981',       // Green
-            'IN PROGRESS' => 'FF1E40AF',     // Blue
-            'PENDING' => 'FFEAB308',         // Yellow
-            'WAITING SPV' => 'FFF59E0B',     // Orange
-            'WAITING APPROVAL' => 'FFDC2626', // Red
-            'CANCELLED' => 'FF6B7280',       // Gray
-            'REJECTED' => 'FFEF4444',        // Red
+            // --- SUKSES / SELESAI (HIJAU) ---
+            'COMPLETED'           => 'FF10B981',
+            'APPROVED'            => 'FF10B981',
+
+            // --- PROSES (BIRU) ---
+            'IN PROGRESS'         => 'FF1E40AF',
+            'OPEN'                => 'FF3B82F6',
+
+            // --- MENUNGGU (ORANYE / MERAH) ---
+            'PENDING'             => 'FFEAB308', // Kuning
+            'WAITING SPV'         => 'FFF59E0B', // Oranye
+            'WAITING APPROVAL'    => 'FFDC2626', // Merah
+            'WAITING GA APPROVAL' => 'FFDC2626', // Merah
+
+            // --- BATAL (ABU / MERAH TERANG) ---
+            'CANCELLED'           => 'FF6B7280',
+            'REJECTED'            => 'FFEF4444',
+            'DECLINED'            => 'FFEF4444',
         ];
 
-        return $statusMap[strtoupper($status)] ?? null;
+        return $statusMap[$statusKey] ?? null;
     }
 }

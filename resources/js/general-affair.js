@@ -120,27 +120,69 @@ document.addEventListener('alpine:init', () => {
             }
         },
         
-        openEditModal(data) {
-            this.editForm.id = data.id;
-            this.editForm.ticket_num = data.ticket_num;
-            this.editForm.status = data.status;
-            this.editForm.pic = data.processed_by_name || this.currentUser.name;
-            this.editForm.department = data.department || 'GA';
-            this.editForm.category = data.category || 'MEDIUM';
-            this.editForm.start_date = data.actual_start_date || '';
-            this.editForm.target_date = data.target_completion_date || '';
-            this.editForm.completion_note = data.completion_note || '';
-            this.editForm.cancellation_note = data.cancellation_note || '';
+      openEditModal(data) {
+    console.log("CEK DATA DARI BACKEND:", data);
 
-            this.showEditModal = true;
-            
-            // Re-init Datepicker
-            setTimeout(() => {
-                 if (typeof flatpickr !== 'undefined') {
-                     flatpickr(".date-picker", { dateFormat: "Y-m-d" });
-                 }
-            }, 100);
-        },
+    this.editForm.id = data.id;
+    this.editForm.ticket_num = data.ticket_num;
+    this.editForm.status = data.status;
+    this.editForm.pic = data.processed_by_name || this.currentUser.name;
+    this.editForm.department = data.department || 'GA';
+    this.editForm.category = data.category || 'MEDIUM';
+
+    // --- 1. LOGIKA START DATE (DENGAN JAM) ---
+    let fullStartDate = '';
+    if (data.actual_start_date) {
+        let d = new Date(data.actual_start_date);
+        if (!isNaN(d.getTime())) {
+            // Koreksi Timezone WIB
+            d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+            // Format YYYY-MM-DD HH:mm (Ganti T jadi spasi)
+            fullStartDate = d.toISOString().slice(0, 16).replace('T', ' ');
+        }
+    }
+    // Masukkan ke model Alpine
+    this.editForm.start_date = fullStartDate;
+
+
+    // --- 2. LOGIKA SELESAI AKTUAL (DENGAN JAM) ---
+    const formatToDateTimeLocal = (dateString) => {
+        if (!dateString) return '';
+        let date = new Date(dateString);
+        if (isNaN(date.getTime())) return '';
+        date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+        return date.toISOString().slice(0, 16); // Format YYYY-MM-DDTHH:mm
+    };
+
+    // PERBAIKAN TYPO: actual_end_date (bukan data)
+    this.editForm.actual_end_date = formatToDateTimeLocal(data.actual_end_date); 
+    
+    // Reset field lain
+    this.editForm.target_date = data.target_completion_date || '';
+    this.editForm.completion_note = data.completion_note || '';
+    this.editForm.cancellation_note = data.cancellation_note || '';
+
+    this.showEditModal = true;
+    
+    // --- 3. FLATPICKR START DATE (AKTIFKAN WAKTU) ---
+    setTimeout(() => {
+        const startDateInput = document.getElementById('modal_start_date');
+        if (startDateInput && typeof flatpickr !== 'undefined') {
+            if (startDateInput._flatpickr) startDateInput._flatpickr.destroy();
+
+            flatpickr(startDateInput, { 
+                enableTime: true,        // <--- PENTING: Agar bisa pilih jam
+                dateFormat: "Y-m-d H:i", // <--- Format kirim ke server (YYYY-MM-DD HH:mm)
+                time_24hr: true,         // Format 24 jam
+                defaultDate: fullStartDate, // <--- Gunakan variabel yang ada jamnya
+                allowInput: true,
+                onChange: (selectedDates, dateStr) => {
+                    this.editForm.start_date = dateStr;
+                }
+            });
+        }
+    }, 50);
+},
 
         resetToMe() {
             this.formData.nik = this.currentUser.nik;
@@ -237,20 +279,28 @@ document.addEventListener('DOMContentLoaded', () => {
 // 2. Konfirmasi Submit
 window.confirmSubmit = function(event, title, text, icon = 'warning', confirmColor = '#3085d6') {
     event.preventDefault();
-    const form = event.target;
+    const formEl = event.target.closest('form');
+    if(!formEl){
+        console.error('Form tidak ditemukan!');
+        return;
+    }
     Swal.fire({
         title: title, text: text, icon: icon,
         showCancelButton: true, confirmButtonColor: confirmColor, cancelButtonColor: '#64748b',
         confirmButtonText: 'Ya, Lanjutkan!', cancelButtonText: 'Batal', reverseButtons: true
     }).then((result) => {
-        if (result.isConfirmed) form.submit();
+        if (result.isConfirmed) formEl.submit();
     });
 };
 
 // 3. Reject Reason
 window.confirmRejectWithReason = function(event) {
     event.preventDefault();
-    const form = event.target;
+    const formEl = event.target.closest('form');
+    if(!formEl){
+        console.error('Form tidak ditemukan!');
+        return;
+    }
     Swal.fire({
         title: 'Tolak Tiket?', input: 'textarea',
         inputLabel: 'Alasan Penolakan (Opsional)', inputPlaceholder: 'Tulis alasan...',
@@ -258,11 +308,15 @@ window.confirmRejectWithReason = function(event) {
         cancelButtonColor: '#64748b', confirmButtonText: 'Ya, Tolak', cancelButtonText: 'Batal'
     }).then((result) => {
         if (result.isConfirmed) {
-            const reasonInput = document.createElement('input');
-            reasonInput.type = 'hidden'; reasonInput.name = 'reason';
+            let reasonInput = formEl.querySelector('input[name="reason"]');
+            if(!reasonInput){
+                reasonInput = document.createElement('input');
+                reasonInput.type = 'hidden';
+                reasonInput.name = 'reason';
+                formEl.appendChild(reasonInput);
+            }
             reasonInput.value = result.value ? result.value : '-';
-            form.appendChild(reasonInput);
-            form.submit();
+            formEl.submit();
         }
     });
 };

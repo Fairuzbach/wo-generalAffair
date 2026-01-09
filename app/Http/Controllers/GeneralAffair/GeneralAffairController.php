@@ -17,8 +17,8 @@ use App\Models\GeneralAffair\WorkOrderGaHistory;
 use App\Mail\WorkOrderNotification; // Import Mailable yang baru Anda buat
 
 // --- EXPORT ---
-use Maatwebsite\Excel\Facades\Excel;
 use App\Exports\WorkOrderExport;
+use Maatwebsite\Excel\Facades\Excel;
 
 class GeneralAffairController extends Controller
 {
@@ -269,81 +269,138 @@ class GeneralAffairController extends Controller
 
     public function dashboard(Request $request)
     {
+        // 1. QUERY UTAMA (Hanya Tiket yang "Aktif" / Sudah di-Approve)
+        // ------------------------------------------------------------------
+        $query = WorkOrderGeneralAffair::query();
+
         // Proteksi Dashboard
         if (Auth::check() && Auth::user()->role !== User::ROLE_GA_ADMIN) {
             abort(403, 'Akses Ditolak. Dashboard hanya untuk GA Admin.');
         }
 
-        // Query Dasar
-        $query = WorkOrderGeneralAffair::where('status', '!=', 'cancelled');
+        // FILTER STATUS: Hanya ambil yang sudah masuk ranah kerja GA
+        $query->whereIn('status', [
+            'in_progress', // Sedang Dikerjakan
+            'completed',   // Selesai
+            'approved'     // Disetujui (Belum mulai, tapi sudah OK)
+        ]);
 
-        // Filter Tanggal Dashboard
+        // Filter Tanggal
         if ($request->filled('start_date') && $request->filled('end_date')) {
             $query->whereDate('created_at', '>=', $request->start_date)
                 ->whereDate('created_at', '<=', $request->end_date);
         }
 
-        $statsQuery = clone $query; // Simpan base query untuk statistik
+        $statsQuery = clone $query; // Query untuk statistik grafik
 
-        // Ambil Data List (Urutkan berdasarkan tanggal terbaru)
+        // 2. DATA LIST (Tabel di bawah)
+        // ------------------------------------------------------------------
         if (!$request->filled('start_date')) {
-            // Default: ambil 100 data terbaru jika tidak ada filter
             $query->orderBy('created_at', 'desc')->take(100);
         } else {
-            // Jika ada filter: tampilkan semua, tapi urutkan terbaru dulu
             $query->orderBy('created_at', 'desc');
         }
-        $workOrders = $query->get();
+        $workOrders = $query->with(['user', 'plantInfo'])->get();
 
-        // Counter Dashboard
+
+        // 3. COUNTER DASHBOARD
+        // ------------------------------------------------------------------
         $countTotal      = (clone $statsQuery)->count();
-        $countPending    = (clone $statsQuery)->where('status', 'pending')->count();
         $countInProgress = (clone $statsQuery)->where('status', 'in_progress')->count();
         $countCompleted  = (clone $statsQuery)->where('status', 'completed')->count();
 
-        // --- CHART DATA PREPARATION ---
+        // PENTING: Hitung 'Pending' dari query BARU (karena $query utama membuang status pending)
+        $countPending = WorkOrderGeneralAffair::whereIn('status', ['pending', 'waiting_ga_approval'])->count();
 
-        // 1. Chart Detail (Timeline) - DIURUTKAN BERDASARKAN PRIORITAS
+
+        // 4. DATA UNTUK GANTT CHART & PHASE (Timeline)
+        // ------------------------------------------------------------------
+        // ✅ PERBAIKAN: Sorting dengan mempertimbangkan no target date
+        $sortedOrders = $workOrders->sortBy(function ($wo) {
+            // Completed paling bawah
+            if ($wo->status == 'completed') return 3;
+
+            // ✅ PERBAIKAN: Jika tidak ada target, taruh di urutan terakhir sebelum completed
+            if (!$wo->target_completion_date) return 2.5;
+
+            $end = Carbon::parse($wo->target_completion_date);
+
+            // Critical (overdue) paling atas
+            if ($end < now()) return 1;
+
+            // In Progress normal
+            return 2;
+        });
+
         $detailLabels = [];
         $detailData   = [];
         $detailColors = [];
-
-        // Sortir: Critical (merah) > In Progress (biru) > Completed (hijau)
-        $sortedOrders = $workOrders->sortBy(function ($wo) {
-            if ($wo->status == 'completed') return 3;
-            $end = $wo->target_completion_date ? Carbon::parse($wo->target_completion_date) : now();
-            if ($end < now()) return 1; // Critical (delayed)
-            return 2; // In Progress
-        });
+        $detailMetadata = [];
 
         foreach ($sortedOrders as $wo) {
             $detailLabels[] = "[$wo->department] $wo->ticket_num";
 
-            // Hitung Durasi
             $start = Carbon::parse($wo->created_at);
+
+            // ✅ PERBAIKAN: Logic untuk menentukan end date dan warna
+            $hasTarget = !is_null($wo->target_completion_date);
+
             if ($wo->status == 'completed' && $wo->actual_completion_date) {
                 $end = Carbon::parse($wo->actual_completion_date);
-            } elseif ($wo->target_completion_date) {
+                $color = '#10b981'; // Hijau
+            } elseif ($wo->status == 'completed') {
+                // Completed tapi tidak ada actual date, pakai target atau now
+                $end = $hasTarget ? Carbon::parse($wo->target_completion_date) : now();
+                $color = '#10b981'; // Hijau
+            } elseif ($hasTarget) {
+                // Ada target date
                 $end = Carbon::parse($wo->target_completion_date);
+                $isOverdue = $end < now();
+
+                if ($isOverdue) {
+                    $color = '#ef4444'; // Merah - Critical/Overdue
+                } else {
+                    $color = '#3b82f6'; // Biru - In Progress (on time)
+                }
             } else {
+                // ✅ PERBAIKAN KRUSIAL: Tidak ada target date
+                // Warna ABU-ABU, tapi status_type tetap mengikuti status asli dari DB
                 $end = now();
+                $color = ' #3b82f6'; // Abu-abu - No Deadline
             }
+
             if ($end < $start) $end = $start;
 
             $diffDays = $start->diffInDays($end);
             $detailData[] = $diffDays < 1 ? 1 : $diffDays;
+            $detailColors[] = $color;
 
-            // Warna Bar
-            if ($wo->status == 'completed') {
-                $detailColors[] = '#10b981'; // Hijau
-            } elseif ($end < now()) {
-                $detailColors[] = '#ef4444'; // Merah (Telat/Critical)
-            } else {
-                $detailColors[] = '#3b82f6'; // Biru (In Progress)
+            // ✅ PERBAIKAN: status_type MENGIKUTI status asli dari database
+            // Jangan ganti jadi 'no-target' hanya karena tidak ada target date
+            $statusType = $wo->status; // completed, in_progress, approved
+
+            // Cek overdue hanya jika ada target date
+            $isOverdue = false;
+            if ($hasTarget && $wo->status !== 'completed') {
+                $targetDate = Carbon::parse($wo->target_completion_date);
+                $isOverdue = $targetDate < now();
             }
+
+            // ✅ PERBAIKAN: Metadata lengkap
+            $detailMetadata[] = [
+                'ticket_num' => $wo->ticket_num,
+                'status' => $wo->status, // Status asli dari DB
+                'status_type' => $statusType, // Sama dengan status
+                'has_target' => $hasTarget,
+                'target_completion_date' => $wo->target_completion_date,
+                'actual_completion_date' => $wo->actual_completion_date,
+                'is_overdue' => $isOverdue,
+                'department' => $wo->department,
+                'created_at' => $wo->created_at->format('Y-m-d'),
+            ];
         }
 
-        // 2. Chart Phase (Beban Kerja per Dept)
+        // Chart Phase (Beban Kerja per Dept dari Tiket Aktif)
         $groupedDept = $workOrders->groupBy('department');
         $phaseLabels = [];
         $phaseData   = [];
@@ -352,50 +409,53 @@ class GeneralAffairController extends Controller
         foreach ($groupedDept as $deptName => $tickets) {
             $phaseLabels[] = $deptName ?? 'Unassigned';
             $phaseData[]   = $tickets->count();
-            $phaseColors[] = '#eab308'; // Yellow for all departments
+            $phaseColors[] = '#eab308';
         }
 
+        // ✅ PERBAIKAN: Packing Data dengan Metadata
         $chartDataDetail = [
             'labels' => $detailLabels,
-            'data' => $detailData,
-            'colors' => $detailColors
+            'data'   => $detailData,
+            'colors' => $detailColors,
+            'metadata' => $detailMetadata
         ];
 
         $chartDataPhase = [
             'labels' => $phaseLabels,
-            'data' => $phaseData,
+            'data'   => $phaseData,
             'colors' => $phaseColors
         ];
 
-        // 3. Chart Lokasi (dengan Join ke tabel plants)
-        $locData = WorkOrderGeneralAffair::where('work_order_general_affairs.status', '!=', 'cancelled')
+
+        // 5. CHART DATA LAINNYA (Lokasi, Dept, Param, Bobot)
+        // ------------------------------------------------------------------
+
+        // A. Chart Lokasi
+        $locData = (clone $statsQuery)
             ->join('plants', 'work_order_general_affairs.plant', '=', 'plants.id')
-            ->selectRaw('plants.name as label, count(*) as total');
-
-        // Terapkan filter tanggal jika ada
-        if ($request->filled('start_date') && $request->filled('end_date')) {
-            $locData->whereDate('work_order_general_affairs.created_at', '>=', $request->start_date)
-                ->whereDate('work_order_general_affairs.created_at', '<=', $request->end_date);
-        }
-
-        $locData = $locData->groupBy('plants.name')
+            ->selectRaw('plants.name as label, count(*) as total')
+            ->groupBy('plants.name')
             ->orderByDesc('total')
             ->get();
 
-        // 4. Helper untuk Chart Sederhana
-        $getChartData = function ($col, $q) {
-            return $q->selectRaw("$col as label, count(*) as total")
-                ->whereNotNull($col)
-                ->groupBy($col)
-                ->orderByDesc('total')
-                ->get();
-        };
+        // B. Chart Department
+        $deptData = (clone $statsQuery)
+            ->selectRaw('department as label, count(*) as total')
+            ->whereNotNull('department')
+            ->groupBy('department')
+            ->orderByDesc('total')
+            ->get();
 
-        $deptData  = $getChartData('department', clone $statsQuery);
-        $paramData = $getChartData('parameter_permintaan', clone $statsQuery);
+        // C. Chart Parameter
+        $paramData = (clone $statsQuery)
+            ->selectRaw('parameter_permintaan as label, count(*) as total')
+            ->whereNotNull('parameter_permintaan')
+            ->groupBy('parameter_permintaan')
+            ->orderByDesc('total')
+            ->get();
 
-        // 5. Bobot Chart
-        $bobotData = (clone $statsQuery)
+        // D. Chart Bobot
+        $bobotRaw = (clone $statsQuery)
             ->selectRaw('category, count(*) as total')
             ->groupBy('category')
             ->pluck('total', 'category')
@@ -403,17 +463,20 @@ class GeneralAffairController extends Controller
 
         $chartBobotLabels = ['Berat (High)', 'Sedang (Medium)', 'Ringan (Low)'];
         $chartBobotValues = [
-            $bobotData['HIGH'] ?? $bobotData['BERAT'] ?? 0,
-            $bobotData['MEDIUM'] ?? $bobotData['SEDANG'] ?? 0,
-            $bobotData['LOW'] ?? $bobotData['RINGAN'] ?? 0
+            $bobotRaw['HIGH'] ?? $bobotRaw['BERAT'] ?? 0,
+            $bobotRaw['MEDIUM'] ?? $bobotRaw['SEDANG'] ?? 0,
+            $bobotRaw['LOW'] ?? $bobotRaw['RINGAN'] ?? 0
         ];
 
-        // 6. Performance Calculation
+
+        // 6. PERFORMANCE CALCULATION
+        // ------------------------------------------------------------------
         $filterMonth = $request->input('filter_month', date('Y-m'));
-        $year = substr($filterMonth, 0, 4);
+        $year  = substr($filterMonth, 0, 4);
         $month = substr($filterMonth, 5, 2);
 
-        $perfQuery = WorkOrderGeneralAffair::where('status', '!=', 'cancelled')
+        // ✅ PERBAIKAN: Performance calculation dengan handling no target date
+        $perfQuery = WorkOrderGeneralAffair::whereIn('status', ['in_progress', 'completed', 'approved'])
             ->where(function ($q) use ($year, $month) {
                 $q->whereYear('target_completion_date', $year)
                     ->whereMonth('target_completion_date', $month)
@@ -428,7 +491,9 @@ class GeneralAffairController extends Controller
         $perfCompleted  = (clone $perfQuery)->where('status', 'completed')->count();
         $perfPercentage = $perfTotal > 0 ? round(($perfCompleted / $perfTotal) * 100) : 0;
 
-        // 7. Prepare chart arrays untuk JS
+
+        // 7. PREPARE VARIABLES FOR BLADE
+        // ------------------------------------------------------------------
         $chartLocLabels = $locData->pluck('label')->toArray();
         $chartLocValues = $locData->pluck('total')->toArray();
 
@@ -727,12 +792,22 @@ class GeneralAffairController extends Controller
 
             $departments = [
                 $specificDept, // Dept Utama (Hasil mapping di atas)
+                'FA',
+                'FH',
+                'FO',
                 'GA',
-                'IT',
                 'HC',
-                'Safety',
+                'IT',
+                'Low Voltage',
+                'MT',
+                'Marketing',
+                'Medium Voltage',
+                'PE',
                 'Planning',
-                'Maintenance'
+                'QR',
+                'Sales',
+                'SC',
+                'SS',
             ];
 
             // Hapus duplikat (misal specificDept = 'GA', maka 'GA' jangan muncul 2x)
@@ -832,7 +907,7 @@ class GeneralAffairController extends Controller
             // 2. Kirim Email ke GA Admin (Tipe: 'ga_new')
             try {
                 // Pastikan email GA Admin benar
-                \Mail::to('ga_admin@company.com')->send(new \App\Mail\WorkOrderNotification($ticket, 'ga_new'));
+                \Mail::to('dijedra56@gmail.com')->send(new \App\Mail\WorkOrderNotification($ticket, 'ga_new'));
                 \Log::info('DEBUG: Email notifikasi ke GA Admin terkirim.');
             } catch (\Exception $e) {
                 \Log::error('Gagal kirim email ke GA: ' . $e->getMessage());
@@ -854,7 +929,6 @@ class GeneralAffairController extends Controller
 
     public function approveByGA(Request $request, $id)
     {
-        dd("BERHASIL MASUK KE FUNGSI INI"); // <--- Tambahkan ini
         // 1. Validasi Role GA
         if (Auth::user()->role !== 'ga.admin') {
             abort(403, 'Hanya GA Admin yang bisa akses.');
@@ -1058,8 +1132,10 @@ class GeneralAffairController extends Controller
             ];
 
             // --- SKENARIO 1: ON PROGRESS ---
-            if ($request->status === 'on_progress') {
-                $dataToUpdate['actual_start_date'] = $request->start_date ?? $ticket->actual_start_date ?? now();
+            if ($request->filled('start_date')) {
+                $dataToUpdate['actual_start_date'] = $request->start_date;
+            } else if ($request->status === 'in_progress' && is_null($ticket->actual_start_date)) {
+                $dataToUpdate['actual_start_date'] = now();
             }
 
             // --- SKENARIO 2: COMPLETED (SELESAI) ---
@@ -1134,23 +1210,96 @@ class GeneralAffairController extends Controller
 
     public function export(Request $request)
     {
-        // Jika user memilih checkbox (Selected IDs)
-        if ($request->filled('selected_ids') && $request->selected_ids != '') {
-            $idsRaw = is_array($request->selected_ids) ? end($request->selected_ids) : $request->selected_ids;
-            $ids = explode(',', $idsRaw);
+        $user = Auth::user();
+        $query = WorkOrderGeneralAffair::query();
 
-            $query = WorkOrderGeneralAffair::with('user')
-                ->whereIn('id', $ids)
-                ->latest();
-        } else {
-            // Jika tidak, export sesuai filter yang sedang aktif
-            $query = $this->buildQuery($request);
-            $query->with('user');
+        // =================================================================
+        // 1. LOGIKA HAK AKSES (SAMA PERSIS DENGAN INDEX)
+        // =================================================================
+        $roleMap = [
+            'eng.admin' => ['Engineering', 'engineering', 'ENGINEERING', 'PE'],
+            'fh.admin'  => ['Facility', 'FH', 'FACILITY'],
+            'mt.admin'  => ['Maintenance', 'maintenance', 'MT'],
+            'lv.admin'  => ['Low Voltage', 'LOW VOLTAGE', 'low voltage', 'LV', 'lv'],
+            'mv.admin'  => ['Medium Voltage', 'medium voltage', 'MV', 'mv'],
+            'qr.admin'  => ['QR', 'qr'],
+            'sc.admin'  => ['SC', 'sc'],
+            'fo.admin'  => ['FO', 'fo'],
+            'ss.admin'  => ['SS', 'ss'],
+            'fa.admin'  => ['FA', 'fa'],
+            'it.admin'  => ['IT', 'it'],
+            'hc.admin'  => ['HC', 'hc'],
+            'sales.admin'     => ['Sales', 'sales'],
+            'marketing.admin' => ['Marketing', 'marketing'],
+        ];
+
+        if ($user) {
+            // A. GA ADMIN (Logika Khusus GA)
+            if ($user->role === User::ROLE_GA_ADMIN || $user->role === 'admin_ga') {
+                $query->where(function ($q) {
+                    // Tampilkan tiket yang sudah diproses
+                    $q->whereIn('status', ['pending', 'approved', 'in_progress', 'completed', 'OPEN']);
+
+                    // Tampilkan tiket Waiting Approval HANYA jika tujuannya ke GA
+                    $q->orWhere(function ($sub) {
+                        $sub->where('status', 'waiting_approval')
+                            ->whereIn('department', ['GA', 'General Affair']);
+                    });
+                });
+            }
+            // B. ADMIN TEKNIS
+            elseif (array_key_exists($user->role, $roleMap)) {
+                $allowedDepts = $roleMap[$user->role];
+                $query->where(function ($q) use ($user, $allowedDepts) {
+                    $q->whereIn('department', $allowedDepts)
+                        ->orWhere('requester_id', $user->id);
+                });
+            }
+            // C. USER BIASA
+            else {
+                $query->where('requester_id', $user->id);
+            }
         }
 
-        $data = $query->get();
-        $filename = 'Laporan-GA-' . date('d-m-Y-H-i') . '.xlsx';
+        // =================================================================
+        // 2. LOGIKA FILTER & PENCARIAN (SAMA PERSIS DENGAN INDEX)
+        // =================================================================
 
-        return Excel::download(new WorkOrderExport($data), $filename);
+        // A. Handle Checklist (Jika user mencentang beberapa baris saja)
+        if ($request->filled('selected_ids')) {
+            $ids = explode(',', $request->selected_ids);
+            $query->whereIn('id', $ids);
+        }
+        // B. Jika tidak ada checklist, gunakan filter global
+        else {
+            // Search
+            $query->when($request->search, function ($q) use ($request) {
+                $q->where(function ($sub) use ($request) {
+                    $sub->where('ticket_num', 'LIKE', "%{$request->search}%")
+                        ->orWhere('requester_name', 'LIKE', "%{$request->search}%")
+                        ->orWhere('description', 'LIKE', "%{$request->search}%");
+                });
+            });
+
+            // Filter Dropdown
+            $query->when($request->status && $request->status !== 'all', fn($q) => $q->where('status', $request->status));
+            $query->when($request->category && $request->category !== 'all', fn($q) => $q->where('category', $request->category));
+            $query->when($request->parameter && $request->parameter !== 'all', fn($q) => $q->where('parameter_permintaan', $request->parameter));
+            $query->when($request->plant_id && $request->plant_id !== 'all', fn($q) => $q->where('plant', $request->plant_id));
+
+            // Filter Tanggal
+            if ($request->filled('start_date') && $request->filled('end_date')) {
+                $query->whereDate('created_at', '>=', $request->start_date)
+                    ->whereDate('created_at', '<=', $request->end_date);
+            }
+        }
+
+        // =================================================================
+        // 3. SORTING & EKSEKUSI
+        // =================================================================
+        $query->orderBy('created_at', 'desc');
+
+        // Kirim Query Builder ke Export Class (bukan ->get() agar hemat memori)
+        return Excel::download(new WorkOrderExport($query), 'Laporan-GA-' . date('d-m-Y-H-i') . '.xlsx');
     }
 }

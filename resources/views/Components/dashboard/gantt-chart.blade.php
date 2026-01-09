@@ -27,9 +27,9 @@
                 <select id="ganttStatusFilter"
                     class="text-xs font-bold border-slate-300 rounded-sm focus:ring-yellow-400 focus:border-yellow-400 cursor-pointer">
                     <option value="all">Status: All</option>
-                    <option value="completed">Completed</option>
-                    <option value="in-progress">In Progress</option>
-                    <option value="delayed">Delayed</option>
+                    <option value="completed">✓ Completed</option>
+                    <option value="in_progress">◷ In Progress</option>
+                    <option value="delayed">⚠ Critical</option>
                 </select>
 
                 <select id="viewModeSelect" name="view_mode"
@@ -55,13 +55,14 @@
         </div>
 
         {{-- LEGEND & STATUS --}}
+        {{-- LEGEND & STATUS --}}
         <div class="flex flex-wrap justify-between items-center gap-4 mt-2">
             <div class="text-xs flex flex-wrap gap-3 font-bold uppercase text-slate-600">
                 <span class="flex items-center gap-1.5">
                     <span class="w-3 h-3 bg-red-500 rounded-sm animate-pulse"></span> Critical
                 </span>
                 <span class="flex items-center gap-1.5">
-                    <span class="w-3 h-3 bg-blue-500 rounded-sm"></span> On Progress
+                    <span class="w-3 h-3 bg-blue-500 rounded-sm"></span> In Progress
                 </span>
                 <span class="flex items-center gap-1.5">
                     <span class="w-3 h-3 bg-emerald-500 rounded-sm"></span> Completed
@@ -114,7 +115,7 @@
 
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        const rawDetail = {!! json_encode($chartDataDetail ?? ['labels' => [], 'data' => [], 'colors' => []]) !!};
+        const rawDetail = {!! json_encode($chartDataDetail ?? ['labels' => [], 'data' => [], 'colors' => [], 'metadata' => []]) !!};
         const rawPhase = {!! json_encode($chartDataPhase ?? ['labels' => [], 'data' => [], 'colors' => []]) !!};
 
         const canvasId = 'ganttChart';
@@ -133,27 +134,74 @@
         const dataWarning = document.getElementById('dataWarning');
 
         let isPhaseView = false;
-        let currentLimit = 20; // Default limit
-        let fullDetailData = {
+        let currentLimit = 20;
+
+        // PERBAIKAN: Sanitize data untuk handle no target date
+        let fullDetailData = sanitizeChartData({
             labels: [...rawDetail.labels],
             data: [...rawDetail.data],
-            colors: [...rawDetail.colors]
-        };
+            colors: [...rawDetail.colors],
+            metadata: rawDetail.metadata ? [...rawDetail.metadata] : []
+        });
 
         const colorMap = {
             'completed': '#10b981',
             'delayed': '#ef4444',
-            'in-progress': '#3b82f6'
+            'in_progress': '#3b82f6'
+            // ✅ HAPUS 'no-target' dari colorMap karena bukan filter status
         };
 
         if (typeof ChartDataLabels !== 'undefined') Chart.register(ChartDataLabels);
 
-        // Update info counter
-        function updateDataInfo(displayed, total) {
+        /**
+         * FUNGSI BARU: Sanitize data untuk menangani report tanpa target completion
+         */
+        function sanitizeChartData(chartData) {
+            const sanitized = {
+                labels: [],
+                data: [],
+                colors: [],
+                metadata: []
+            };
+
+            chartData.labels.forEach((label, index) => {
+                const metadata = chartData.metadata && chartData.metadata[index] ? chartData.metadata[
+                    index] : {};
+                const hasTargetDate = metadata.target_completion_date || metadata.has_target;
+                const color = chartData.colors[index];
+                const status = metadata.status;
+
+                // ✅ PERBAIKAN: Hanya ubah warna jika TIDAK ADA target date DAN status bukan completed
+                // Report dengan target date tetap dengan warna aslinya (merah/biru/hijau)
+                if (!hasTargetDate && status !== 'completed' && color && color.toLowerCase().includes(
+                        '#ef4444')) {
+                    sanitized.labels.push(label);
+                    sanitized.data.push(chartData.data[index]);
+                    sanitized.colors.push('#94a3b8'); // Abu-abu untuk no target
+                    sanitized.metadata.push({
+                        ...metadata,
+                        has_target: false
+                    });
+                } else {
+                    // Pertahankan warna asli untuk semua report dengan target date
+                    sanitized.labels.push(label);
+                    sanitized.data.push(chartData.data[index]);
+                    sanitized.colors.push(color);
+                    sanitized.metadata.push(metadata);
+                }
+            });
+
+            return sanitized;
+        }
+
+        // ✅ PERBAIKAN: Update info counter dengan pengecekan phase view
+        function updateDataInfo(displayed, total, isPhase = false) {
             document.getElementById('displayedCount').textContent = displayed;
             document.getElementById('totalCount').textContent = total;
 
-            if (displayed < total && !isPhaseView) {
+            // ✅ FIX: Jangan tampilkan warning di phase view
+            // Dan hanya tampilkan jika memang ada data yang tidak ditampilkan
+            if (!isPhase && displayed < total) {
                 dataWarning.classList.remove('hidden');
                 document.getElementById('warningLimit').textContent = displayed;
             } else {
@@ -164,24 +212,26 @@
         // Dynamic height calculation
         function calculateChartHeight(dataCount) {
             const minHeight = 400;
-            const itemHeight = 35; // Height per bar
+            const itemHeight = 35;
             const calculatedHeight = Math.max(minHeight, dataCount * itemHeight);
-            return Math.min(calculatedHeight, 1200); // Max 1200px
+            return Math.min(calculatedHeight, 1200);
         }
 
         // Limit data function
-        function limitData(labels, data, colors, limit) {
+        function limitData(labels, data, colors, metadata, limit) {
             if (labels.length <= limit) {
                 return {
                     labels,
                     data,
-                    colors
+                    colors,
+                    metadata
                 };
             }
             return {
                 labels: labels.slice(0, limit),
                 data: data.slice(0, limit),
-                colors: colors.slice(0, limit)
+                colors: colors.slice(0, limit),
+                metadata: metadata ? metadata.slice(0, limit) : []
             };
         }
 
@@ -257,7 +307,6 @@
                             },
                             callback: function(value, index) {
                                 const label = this.getLabelForValue(value);
-                                // Truncate long labels
                                 return label.length > 35 ? label.substring(0, 32) + '...' : label;
                             }
                         }
@@ -286,23 +335,40 @@
                             label: function(context) {
                                 const val = Math.round(context.raw);
                                 const color = context.dataset.backgroundColor[context.dataIndex];
+                                const metadata = fullDetailData.metadata ? fullDetailData.metadata[
+                                    context.dataIndex] : {};
 
                                 if (isPhaseView) {
                                     return `Total Tiket: ${val} pekerjaan`;
                                 }
 
-                                // Detail untuk Task View
+                                // ✅ PERBAIKAN: Status hanya 3 jenis
                                 let status = '';
                                 if (color.includes('#10b981')) {
-                                    status = '✓ Selesai';
+                                    status = '✓ Completed';
                                 } else if (color.includes('#ef4444')) {
-                                    status = '⚠ Terlambat / Critical';
+                                    status = '⚠ Critical';
                                 } else {
-                                    status = '◷ Sedang Berjalan';
+                                    status = '◷ In Progress';
+                                }
+
+                                // ✅ PERBAIKAN: Deadline sebagai informasi terpisah
+                                let deadline = '';
+                                if (metadata.target_completion_date) {
+                                    const targetDate = new Date(metadata.target_completion_date);
+                                    const formattedDate = targetDate.toLocaleDateString('id-ID', {
+                                        day: '2-digit',
+                                        month: 'short',
+                                        year: 'numeric'
+                                    });
+                                    deadline = `Deadline: ${formattedDate}`;
+                                } else {
+                                    deadline = 'Deadline: Tanpa Target Waktu';
                                 }
 
                                 return [
                                     `Status: ${status}`,
+                                    deadline,
                                     `Durasi: ${val} hari`,
                                     `─────────────────`
                                 ];
@@ -312,26 +378,53 @@
 
                                 const color = context.dataset.backgroundColor[context.dataIndex];
                                 const val = Math.round(context.raw);
+                                const metadata = fullDetailData.metadata ? fullDetailData.metadata[
+                                    context.dataIndex] : {};
 
-                                // Estimasi informasi tambahan
                                 let info = [];
 
+                                // ✅ PERBAIKAN: Info berdasarkan warna dan status
                                 if (color.includes('#ef4444')) {
+                                    // Merah = Critical/Delayed
                                     info.push('⚡ Perlu Perhatian Segera');
                                 } else if (color.includes('#3b82f6')) {
-                                    const daysLeft = Math.ceil(val * 0.3); // Estimasi
-                                    info.push(`📅 Est. ${daysLeft} hari tersisa`);
+                                    // Biru = In Progress
+                                    if (metadata.target_completion_date) {
+                                        const targetDate = new Date(metadata.target_completion_date);
+                                        const today = new Date();
+                                        const diffTime = targetDate - today;
+                                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                                        if (diffDays > 0) {
+                                            info.push(`📅 ${diffDays} hari tersisa`);
+                                        }
+                                    }
                                 } else if (color.includes('#10b981')) {
+                                    // Hijau = Completed
                                     info.push('✅ Pekerjaan telah tuntas');
+                                    if (metadata.actual_completion_date) {
+                                        const actualDate = new Date(metadata.actual_completion_date);
+                                        const formattedActual = actualDate.toLocaleDateString('id-ID', {
+                                            day: '2-digit',
+                                            month: 'short',
+                                            year: 'numeric'
+                                        });
+                                        info.push(`Selesai: ${formattedActual}`);
+                                    }
+                                } else if (color.includes('#94a3b8')) {
+                                    // Abu-abu = No Target
+                                    info.push('📌 Belum ada target penyelesaian');
                                 }
 
-                                // Kategori durasi
-                                if (val <= 3) {
-                                    info.push('🔵 Prioritas: Cepat');
-                                } else if (val <= 7) {
-                                    info.push('🟡 Prioritas: Normal');
-                                } else {
-                                    info.push('🔴 Prioritas: Lama');
+                                // Kategori durasi (untuk semua kecuali yang abu-abu tanpa target)
+                                if (!color.includes('#94a3b8')) {
+                                    if (val <= 3) {
+                                        info.push('🔵 Prioritas: Cepat');
+                                    } else if (val <= 7) {
+                                        info.push('🟡 Prioritas: Normal');
+                                    } else {
+                                        info.push('🔴 Prioritas: Lama');
+                                    }
                                 }
 
                                 return info;
@@ -350,34 +443,32 @@
 
         let myGanttChart = new Chart(ctx, chartConfig);
 
-        // Update chart with new data
-        function updateChartData(labels, data, colors, isPhase = false) {
+        // ✅ PERBAIKAN: Update chart dengan parameter isPhase
+        function updateChartData(labels, data, colors, metadata = [], isPhase = false) {
             const totalData = labels.length;
             let displayData;
 
             if (isPhase) {
-                // Phase view: tampilkan semua dept
+                // Phase view: tampilkan semua
                 displayData = {
                     labels,
                     data,
-                    colors
+                    colors,
+                    metadata
                 };
                 currentLimit = totalData;
             } else {
                 // Task view: limit data
-                displayData = limitData(labels, data, colors, currentLimit);
+                displayData = limitData(labels, data, colors, metadata, currentLimit);
             }
 
-            // Update chart height
             const newHeight = calculateChartHeight(displayData.labels.length);
             chartWrapper.style.height = newHeight + 'px';
 
-            // Update chart data
             myGanttChart.data.labels = displayData.labels;
             myGanttChart.data.datasets[0].data = displayData.data;
             myGanttChart.data.datasets[0].backgroundColor = displayData.colors;
 
-            // Update axis label size based on data count
             if (displayData.labels.length > 30) {
                 myGanttChart.options.scales.y.ticks.font.size = 9;
                 myGanttChart.options.scales.x.ticks.font.size = 9;
@@ -388,12 +479,18 @@
 
             myGanttChart.update();
 
-            // Update info
-            updateDataInfo(displayData.labels.length, totalData);
+            // ✅ FIX: Pass isPhase parameter to updateDataInfo
+            updateDataInfo(displayData.labels.length, totalData, isPhase);
         }
 
         // Initial render
-        updateChartData(fullDetailData.labels, fullDetailData.data, fullDetailData.colors);
+        updateChartData(
+            fullDetailData.labels,
+            fullDetailData.data,
+            fullDetailData.colors,
+            fullDetailData.metadata,
+            false // Task view by default
+        );
 
         // --- EVENT LISTENERS ---
 
@@ -403,8 +500,13 @@
                 const mode = e.target.value;
                 if (mode === 'phase') {
                     isPhaseView = true;
-                    updateChartData(rawPhase.labels, rawPhase.data,
-                        Array(rawPhase.labels.length).fill('#eab308'), true);
+                    updateChartData(
+                        rawPhase.labels,
+                        rawPhase.data,
+                        Array(rawPhase.labels.length).fill('#eab308'),
+                        [],
+                        true // ✅ FIX: Pass true for phase view
+                    );
                     if (statusFilter) {
                         statusFilter.value = 'all';
                         statusFilter.disabled = true;
@@ -413,12 +515,19 @@
                     myGanttChart.options.scales.x.title.text = 'Jumlah Tiket';
                 } else {
                     isPhaseView = false;
-                    fullDetailData = {
+                    fullDetailData = sanitizeChartData({
                         labels: [...rawDetail.labels],
                         data: [...rawDetail.data],
-                        colors: [...rawDetail.colors]
-                    };
-                    updateChartData(fullDetailData.labels, fullDetailData.data, fullDetailData.colors);
+                        colors: [...rawDetail.colors],
+                        metadata: rawDetail.metadata ? [...rawDetail.metadata] : []
+                    });
+                    updateChartData(
+                        fullDetailData.labels,
+                        fullDetailData.data,
+                        fullDetailData.colors,
+                        fullDetailData.metadata,
+                        false // ✅ FIX: Pass false for task view
+                    );
                     if (statusFilter) statusFilter.disabled = false;
                     dataLimitInput.disabled = false;
                     myGanttChart.options.scales.x.title.text = 'Durasi (Hari)';
@@ -454,7 +563,13 @@
                 currentLimit = newLimit;
 
                 if (!isPhaseView) {
-                    updateChartData(fullDetailData.labels, fullDetailData.data, fullDetailData.colors);
+                    updateChartData(
+                        fullDetailData.labels,
+                        fullDetailData.data,
+                        fullDetailData.colors,
+                        fullDetailData.metadata,
+                        false
+                    );
                 }
             });
         }
@@ -500,33 +615,59 @@
                 }
 
                 if (status === 'all') {
-                    fullDetailData = {
+                    fullDetailData = sanitizeChartData({
                         labels: [...rawDetail.labels],
                         data: [...rawDetail.data],
-                        colors: [...rawDetail.colors]
-                    };
+                        colors: [...rawDetail.colors],
+                        metadata: rawDetail.metadata ? [...rawDetail.metadata] : []
+                    });
                 } else {
                     const targetColor = colorMap[status];
+
+                    // ✅ PERBAIKAN: Sanitize data mentah dulu
+                    const sanitizedSource = sanitizeChartData({
+                        labels: [...rawDetail.labels],
+                        data: [...rawDetail.data],
+                        colors: [...rawDetail.colors],
+                        metadata: rawDetail.metadata ? [...rawDetail.metadata] : []
+                    });
+
                     let fLabels = [],
                         fData = [],
-                        fColors = [];
+                        fColors = [],
+                        fMetadata = [];
 
-                    rawDetail.colors.forEach((color, index) => {
-                        if (color && color.toLowerCase().includes(targetColor)) {
-                            fLabels.push(rawDetail.labels[index]);
-                            fData.push(rawDetail.data[index]);
-                            fColors.push(color);
+                    // Filter berdasarkan warna yang sudah benar
+                    sanitizedSource.colors.forEach((color, index) => {
+                        const colorLower = color.toLowerCase();
+                        const targetColorLower = targetColor.toLowerCase();
+
+                        if (colorLower.includes(targetColorLower) || colorLower ===
+                            targetColorLower) {
+                            fLabels.push(sanitizedSource.labels[index]);
+                            fData.push(sanitizedSource.data[index]);
+                            fColors.push(sanitizedSource.colors[index]);
+                            if (sanitizedSource.metadata && sanitizedSource.metadata[index]) {
+                                fMetadata.push(sanitizedSource.metadata[index]);
+                            }
                         }
                     });
 
                     fullDetailData = {
                         labels: fLabels,
                         data: fData,
-                        colors: fColors
+                        colors: fColors,
+                        metadata: fMetadata
                     };
                 }
 
-                updateChartData(fullDetailData.labels, fullDetailData.data, fullDetailData.colors);
+                updateChartData(
+                    fullDetailData.labels,
+                    fullDetailData.data,
+                    fullDetailData.colors,
+                    fullDetailData.metadata,
+                    false
+                );
             });
         }
     });

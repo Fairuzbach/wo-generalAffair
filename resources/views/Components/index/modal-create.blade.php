@@ -264,7 +264,7 @@
                                 {{-- 2. PILIH DEPT (DINAMIS DARI AJAX) --}}
                                 <div>
                                     <label class="text-xs font-bold text-slate-600 uppercase mb-1">
-                                        Department Pelapor <span class="text-red-500">*</span>
+                                        Department Anda <span class="text-red-500">*</span>
                                         <span x-show="isLoadingDept"
                                             class="text-[10px] text-yellow-600 ml-2 animate-pulse">Loading...</span>
                                     </label>

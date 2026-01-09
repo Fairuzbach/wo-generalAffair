@@ -70,11 +70,6 @@
                                         Pelapor</span>
                                     <p class="font-bold text-slate-800" x-text="ticket.requester_name"></p>
                                 </div>
-                                {{-- <div>
-                                    <span class="text-xs font-bold text-slate-400 uppercase block mb-1">Divisi
-                                        Pelapor</span>
-                                    <p class="font-bold text-slate-800" x-text="ticket.requester_department || '-'"></p>
-                                </div> --}}
 
                                 {{-- Baris 2: Lokasi & Tujuan --}}
                                 <div>

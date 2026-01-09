@@ -205,7 +205,7 @@
                 </table>
 
                 <div style="text-align: center;">
-                    <a href="{{ url('/') }}" class="btn">
+                    <a href="{{ route('dashboard') }}" class="btn">
                         @if ($type == 'need_approval')
                             Login untuk Approve
                         @elseif($type == 'ga_new')
