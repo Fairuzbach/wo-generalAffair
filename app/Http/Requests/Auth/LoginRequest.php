@@ -43,7 +43,7 @@ class LoginRequest extends FormRequest
         $this->ensureIsNotRateLimited();
 
         // UBAH LOGIKA AUTH: Cek 'nik' dan 'password'
-        if (! Auth::attempt($this->only('nik', 'password'), $this->boolean('remember'))) {
+        if (!Auth::attempt(['nik' => $this->nik, 'password' => $this->password, 'is_active' => true], $this->boolean('remember'))) {
             RateLimiter::hit($this->throttleKey());
 
             throw ValidationException::withMessages([

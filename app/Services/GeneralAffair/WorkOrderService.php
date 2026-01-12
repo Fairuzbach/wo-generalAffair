@@ -110,20 +110,31 @@ class WorkOrderService
     public function processTicket($id, string $action, ?string $reason): string
     {
         $ticket = WorkOrderGeneralAffair::findOrFail($id);
-        $newStatus = ($action === 'approve') ? 'in_progress' : 'rejected';
+        $user = Auth::user();
+
+        if ($action == 'reject') {
+            $newStatus = 'rejected';
+            $desc = "Ditolak. Alasan: $reason";
+        } else {
+            if ($user->role === 'ga.admin' || $user->role === 'admin_ga') {
+                $newStatus = 'approved';
+                $desc = "Tiket diterima oleh General Affair dan akan segera dikerjakan.";
+            } else {
+                $newStatus = 'waiting_ga_approval';
+                $desc = "Disetujui oleh Admin Divisi ({$user->divisi}). Menunggu tindak lanjut General Affair.";
+            }
+        }
 
         $ticket->update([
             'status' => $newStatus,
             'rejection_reason' => ($action === 'reject') ? $reason : null,
-            'processed_by' => Auth::id(),
-            'processed_by_name' => Auth::user()->name,
+            'processed_by' => $user->id,
+            'processed_by_name' => $user->name,
             'updated_at' => now()
         ]);
 
-        $desc = $action === 'reject' ? "Ditolak. Alasan: $reason" : "Disetujui dan sedang dikerjakan.";
         $this->logHistory($ticket->id, ucfirst($newStatus), $desc);
-
-        return ($action === 'approve') ? 'Disetujui' : 'Ditolak';
+        return ($action === 'approve' ? 'Disetujui' : 'Ditolak');
     }
 
     public function getWorkOrders($request, $user)
@@ -166,23 +177,49 @@ class WorkOrderService
     public function applyAccessControl(Builder $query, $user)
     {
         if (!$user) return;
+
+        // 1. LOGIKA ADMIN GA (Melihat semua tiket untuk GA)
         if ($user->role === User::ROLE_GA_ADMIN || $user->role === 'admin_ga') {
             $query->where(function ($q) {
-                $q->whereIn('status', ['pending', 'approved', 'in_progress', 'completed', 'OPEN']);
+                // Admin GA melihat tiket yang STATUSNYA relevan
+                $q->whereIn('status', [
+                    'pending',
+                    'approved',
+                    'in_progress',
+                    'completed',
+                    'OPEN',
+                    'waiting_ga_approval',
+                    'waiting_ga'
+                ]);
 
+                // ATAU tiket yang TUJUANNYA ke departemen GA (walau status masih waiting_approval)
                 $q->orWhere(function ($sub) {
                     $sub->where('status', 'waiting_approval')
                         ->whereIn('department', ['GA', 'General Affair']);
                 });
             });
         } else {
+            // 2. LOGIKA ADMIN DIVISI LAIN (MT, ENG, LV, dll)
             $roleMap = $this->getRoleMapping();
+
             if (array_key_exists($user->role, $roleMap)) {
-                $allowedDepts = $roleMap[$user->role];
-                $query->where(function ($q) use ($user, $allowedDepts) {
-                    $q->whereIn('department', $allowedDepts)
+                // Ambil daftar divisi yang DIKELOLA oleh admin ini
+                // Contoh: lv.admin mengelola ['PLANT A', 'PLANT C', 'Low Voltage']
+                $managedDepts = $roleMap[$user->role];
+
+                $query->where(function ($q) use ($user, $managedDepts) {
+
+                    // A. ADMIN MELIHAT TIKET YANG "DITUJUKAN" KE DIVISINYA
+                    // (User memilih 'PLANT A', maka lv.admin harus bisa lihat)
+                    $q->whereIn('department', $managedDepts)
+
+                        // B. ATAU TIKET YANG DIA BUAT SENDIRI (Sebagai Requester)
                         ->orWhere('requester_id', $user->id);
                 });
+            } else {
+                // 3. LOGIKA USER BIASA
+                // Hanya bisa melihat tiket yang dia buat sendiri
+                $query->where('requester_department', $user->divisi);
             }
         }
     }

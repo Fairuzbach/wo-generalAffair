@@ -191,35 +191,54 @@
                                     $isAuthorized = false;
 
                                     if ($statusTiket == 'waiting_spv' || $statusTiket == 'waiting_approval') {
-                                        if (
-                                            ($deptTiket == 'MT' || stripos($deptTiket, 'Maintenance') !== false) &&
-                                            $userRole == 'mt.admin'
-                                        ) {
+                                        if (stripos($deptTiket, 'MAINTENANCE') !== false && $userRole == 'mt.admin') {
                                             $isAuthorized = true;
                                         } elseif (
-                                            ($deptTiket == 'FH' || stripos($deptTiket, 'Facility') !== false) &&
+                                            stripos($deptTiket, 'FACILITY') !== false &&
                                             $userRole == 'fh.admin'
                                         ) {
                                             $isAuthorized = true;
-                                        } elseif (
-                                            ($deptTiket == 'ENG' ||
-                                                $deptTiket == 'SC' ||
-                                                stripos($deptTiket, 'Engineering') !== false ||
-                                                in_array($deptTiket, [
-                                                    'PE',
-                                                    'Low Voltage',
-                                                    'Medium Voltage',
-                                                    'FO',
-                                                    'QR',
-                                                    'SS',
-                                                ])) &&
-                                            $userRole == 'eng.admin'
-                                        ) {
+                                        } elseif (stripos($deptTiket, 'PE') !== false && $userRole == 'eng.admin') {
                                             $isAuthorized = true;
                                         } elseif (
                                             in_array($deptTiket, ['GA', 'General Affair']) &&
                                             ($userRole == 'ga.admin' || $userRole == 'admin_ga')
                                         ) {
+                                            $isAuthorized = true;
+                                        } elseif (
+                                            stripos($deptTiket, 'Low voltage') !== false &&
+                                            $userRole == 'lv.admin'
+                                        ) {
+                                            $isAuthorized = true;
+                                        } elseif (
+                                            stripos($deptTiket, 'Medium voltage') !== false &&
+                                            $userRole == 'mv.admin'
+                                        ) {
+                                            $isAuthorized = true;
+                                        } elseif (stripos($deptTiket, 'QR') !== false && $userRole == 'qr.admin') {
+                                            $isAuthorized = true;
+                                        } elseif (stripos($deptTiket, 'hc') !== false && $userRole == 'hc.admin') {
+                                            $isAuthorized = true;
+                                        } elseif (stripos($deptTiket, 'sc') !== false && $userRole == 'sc.admin') {
+                                            $isAuthorized = true;
+                                        } elseif (stripos($deptTiket, 'it') !== false && $userRole == 'it.admin') {
+                                            $isAuthorized = true;
+                                        } elseif (
+                                            stripos($deptTiket, 'sales 1') !== false &&
+                                            $userRole == 'sales1.admin'
+                                        ) {
+                                            $isAuthorized = true;
+                                        } elseif (
+                                            stripos($deptTiket, 'sales 2') !== false &&
+                                            $userRole == 'sales2.admin'
+                                        ) {
+                                            $isAuthorized = true;
+                                        } elseif (
+                                            stripos($deptTiket, 'marketing') !== false &&
+                                            $userRole == 'marketing.admin'
+                                        ) {
+                                            $isAuthorized = true;
+                                        } elseif (stripos($deptTiket, 'ss') !== false && $userRole == 'ss.admin') {
                                             $isAuthorized = true;
                                         }
                                     }

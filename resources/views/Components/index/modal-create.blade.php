@@ -175,6 +175,7 @@
                 </div>
 
                 {{-- Body Form --}}
+
                 <form x-ref="createForm"
                     @submit-confirmed.window="isSubmitting = true; setTimeout(() => $refs.createForm.submit(), 500)"
                     action="{{ route('ga.store') }}" method="POST" enctype="multipart/form-data">
@@ -227,8 +228,8 @@
                                 <div>
                                     <label class="text-xs font-bold text-slate-700 uppercase mb-1">Nama & Dept</label>
                                     <input type="text"
-                                        :value="formData.manual_requester_name ? (formData.manual_requester_name + ' - ' +
-                                            displayDept) : '-'"
+                                        :value="formData.manual_requester_name ? (formData.manual_requester_name + (
+                                            displayDept ? ' - ' + displayDept : '')) : '-'"
                                         readonly
                                         class="w-full bg-slate-200 border-2 border-slate-200 text-slate-500 font-bold text-sm h-11 px-3 cursor-not-allowed mb-2 focus:outline-none">
 
@@ -347,12 +348,15 @@
                         <div class="mt-4">
                             <label class="text-xs font-bold text-slate-700 uppercase mb-1">Foto Bukti
                                 (Opsional)</label>
-                            <input type="file" name="photo"
-                                class="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-sm file:border-0 file:text-xs file:font-black file:uppercase file:bg-slate-900 file:text-white hover:file:bg-slate-700 cursor-pointer border border-slate-300 rounded-sm">
+                            <input type="file" accept="image/*" name="photo"
+                                class="block w-full text-sm text-slate-500 file:mr-4 file:py-2.5 file:px-4 file:rounded-sm file:border-0 file:text-xs file:font-black file:uppercase file:bg-slate-900 file:text-white hover:file:bg-slate-700 cursor-pointer border border-slate-300 rounded-sm @error('photo') is-invalid @enderror">
+
                         </div>
 
                         {{-- Footer --}}
-                        <div class="px-8 py-5 bg-slate-50 flex flex-row-reverse gap-3 border-t border-slate-200 mt-6">
+                        <div
+                            class="px-8
+                                py-5 bg-slate-50 flex flex-row-reverse gap-3 border-t border-slate-200 mt-6">
                             <button type="button" @click="openConfirm()"
                                 class="bg-gradient-to-br from-yellow-400 via-yellow-500 to-amber-500 text-slate-900 hover:from-yellow-500 px-8 py-3.5 rounded-xl font-bold uppercase tracking-wider shadow-lg hover:scale-105 active:scale-95 transition-all">Kirim
                                 Tiket</button>
@@ -365,3 +369,20 @@
         </div>
     </div>
 </template>
+@if ($errors->any())
+    <script>
+        // Ambil semua error dari Laravel dan gabungkan jadi HTML list
+        let errorMessages = '';
+        @foreach ($errors->all() as $error)
+            errorMessages += '<li style="text-align: left;">{{ $error }}</li>';
+        @endforeach
+
+        Swal.fire({
+            icon: 'error',
+            title: 'Gagal Menyimpan!',
+            html: `<ul>${errorMessages}</ul>`, // Tampilkan list error
+            confirmButtonText: 'Perbaiki',
+            confirmButtonColor: '#d33', // Warna merah
+        });
+    </script>
+@endif

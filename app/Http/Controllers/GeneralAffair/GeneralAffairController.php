@@ -211,8 +211,11 @@ class GeneralAffairController extends Controller
                 case 'HC':
                     $specificDept = 'HC';
                     break;
-                case 'Sales':
-                    $specificDept = 'Sales';
+                case 'Sales 1':
+                    $specificDept = 'Sales 1';
+                    break;
+                case 'Sales 2':
+                    $specificDept = 'Sales 2';
                     break;
 
                 default:
@@ -239,7 +242,8 @@ class GeneralAffairController extends Controller
                 'PE',
                 'Planning',
                 'QR',
-                'Sales',
+                'Sales 1',
+                'Sales 2',
                 'SC',
                 'SS',
             ];
@@ -334,7 +338,8 @@ class GeneralAffairController extends Controller
             'fa.admin'  => ['FA', 'fa'],
             'it.admin'  => ['IT', 'it'],
             'hc.admin'  => ['HC', 'hc'],
-            'sales.admin'     => ['Sales', 'sales'],
+            'sales1.admin'     => ['Sales 1', 'sales 1'],
+            'sales2.admin'     => ['Sales 2', 'sales 2'],
             'marketing.admin' => ['Marketing', 'marketing'],
         ];
 
