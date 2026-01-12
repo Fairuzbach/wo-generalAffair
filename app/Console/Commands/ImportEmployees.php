@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Hash;
 class ImportEmployees extends Command
 {
     protected $signature = 'employee:import {file}';
-    protected $description = 'Import data karyawan dengan Mapping Divisi & Jabatan';
+    protected $description = 'Import data karyawan dengan Fix NIK & Jabatan';
 
     public function handle()
     {
@@ -21,24 +21,22 @@ class ImportEmployees extends Command
             return;
         }
 
-        // 1. KAMUS MAPPING (UBAH NAMA EXCEL -> NAMA DATABASE)
-        // Format: 'NAMA DI EXCEL' => 'NAMA SINGKATAN'
+        // 1. KAMUS MAPPING DIVISI
         $divisiMap = [
             'INFORMATION TECHNOLOGY'      => 'IT',
             'PROCESS ENGINEERING'         => 'ENGINEERING',
-            'QUALITY ASSURANCE & R D'     => 'QA',
+            'QUALITY ASSURANCE & R D'     => 'QR',
             'SALES SUPPORT'               => 'SS',
             'COMMERCIAL & SUPPLY CHAIN'   => 'SC',
             'HUMAN CAPITAL'               => 'HC',
         ];
 
-        // 2. DAFTAR DIVISI YANG DIIZINKAN MASUK (TARGET)
-        // Gunakan nama HASIL SINGKATAN di sini
+        // 2. DAFTAR TARGET DIVISI (Gunakan Singkatan)
         $targetDivisi = [
             'PRESIDENT DIRECTOR',
             'GENERAL AFFAIR',
-            'IT',             // Sudah disingkat
-            'ENGINEERING',    // Sudah disingkat
+            'IT',
+            'ENGINEERING',
             'FACILITY',
             'MAINTENANCE',
             'MARKETING',
@@ -47,12 +45,12 @@ class ImportEmployees extends Command
             'PLANT C',
             'PLANT D',
             'PLANT E',
-            'QA',             // Sudah disingkat
+            'QR',
             'SALES 1',
             'SALES 2',
-            'SS',             // Sudah disingkat
-            'SC',             // Sudah disingkat
-            'HC',             // Sudah disingkat
+            'SS',
+            'SC',
+            'HC',
         ];
 
         $this->info("🚀 Memulai proses import...");
@@ -65,28 +63,37 @@ class ImportEmployees extends Command
 
         $reader->getRows()->each(function (array $row) use ($targetDivisi, $divisiMap, &$masuk, &$skip) {
 
-            // A. BERSIHKAN & MAPPING DIVISI
+            // A. LOGIKA DIVISI
             $rawDivisi = strtoupper(trim($row['Organization']));
-
-            // Cek di kamus: Kalau ada di map pakai singkatan, kalau tidak pakai aslinya
             $fixedDivisi = $divisiMap[$rawDivisi] ?? $rawDivisi;
 
-            // B. FILTER (Hanya izinkan yang ada di daftar target)
             if (!in_array($fixedDivisi, $targetDivisi)) {
                 $skip++;
-                return; // Lewati baris ini
+                return;
             }
+
+            // B. FIX NIK (LOGIKA BARU)
+            $nik = trim((string) $row['Employee ID']);
+
+            // Cek: Apakah NIK ini HANYA ANGKA?
+            if (ctype_digit($nik)) {
+                // Jika Angka & kurang dari 4 digit, tambahkan 0 di depan
+                if (strlen($nik) < 4) {
+                    $nik = str_pad($nik, 4, '0', STR_PAD_LEFT);
+                }
+            }
+            // Jika ada huruf (misal: DIR05), dia akan lolos tanpa diubah (tetap DIR05)
 
             // C. SIMPAN KE DATABASE
             User::updateOrCreate(
-                ['nik' => $row['Employee ID']], // Kunci Unik
+                ['nik' => $nik],
                 [
                     'name'         => $row['Full Name'],
-                    'divisi'       => $fixedDivisi, // Masukkan nama divisi yang sudah fixed
-                    'jabatan' => $row['Job Position'] ?? null,
-
+                    'divisi'       => $fixedDivisi,
+                    'jabatan'      => $row['Job Position'] ?? null,
                     'password'     => Hash::make('jembopass'),
-                    'role'         => 'user'
+                    'role'         => 'user',
+                    'is_active'    => true,
                 ]
             );
 
@@ -97,7 +104,6 @@ class ImportEmployees extends Command
         $this->output->progressFinish();
         $this->info("------------------------------------------------");
         $this->info("✅ BERHASIL DISIMPAN : $masuk Karyawan");
-        $this->comment("⏭️  DILEWATI (SKIP)   : $skip Baris");
         $this->info("------------------------------------------------");
     }
 }
