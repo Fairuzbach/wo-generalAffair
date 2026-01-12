@@ -51,7 +51,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // -----------------------------------------------------------------
 
     // Jalur 1: Admin Teknis (MT/FH/ENG)
-    Route::post('/wo/approve-technical/{id}', [GeneralAffairController::class, 'approveByTechnical'])->name('wo.approve_technical');
+    Route::match(['get', 'post'], '/wo/approve-technical/{id}', [GeneralAffairController::class, 'approveByTechnical'])->name('wo.approve_technical');
 
     // Jalur 2: Admin GA
     Route::post('/wo/approve-ga/{id}', [GeneralAffairController::class, 'approveByGA'])
