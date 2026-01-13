@@ -1,6 +1,8 @@
-import './bootstrap';
-import './general-affair'
-import './dashboard'
+import './bootstrap.js';
+import './general-affair.js'
+import './dashboard.js'
+import './dhtmlx.js'
+import './gantt-init.js'
 import Alpine from 'alpinejs';
 import collapse from '@alpinejs/collapse';
 

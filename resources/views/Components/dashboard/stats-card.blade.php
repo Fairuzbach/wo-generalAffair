@@ -1,4 +1,8 @@
-@props(['countTotal', 'countPending', 'countInProgress', 'countCompleted'])
+@props(['countTotal', 'countDelayed', 'countInProgress', 'countCompleted'])
+{{-- Legacy support for old 'countPending' prop --}}
+@php
+    $countDelayed = $countDelayed ?? ($countPending ?? 0);
+@endphp
 <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8" x-show="show" x-transition>
 
     {{-- 1. Card Total --}}
@@ -23,23 +27,22 @@
         </div>
     </div>
 
-    {{-- 2. Card Pending (Amber Glow) --}}
+    {{-- 2. Card Overdue/Delayed (Red Glow) --}}
     <div
-        class="bg-white rounded-sm shadow-md p-6 relative overflow-hidden group hover:-translate-y-2 transition-all duration-300 border-l-4 border-amber-500 hover:shadow-amber-500/20 hover:shadow-xl">
+        class="bg-white rounded-sm shadow-md p-6 relative overflow-hidden group hover:-translate-y-2 transition-all duration-300 border-l-4 border-red-500 hover:shadow-red-500/20 hover:shadow-xl">
         <div class="relative z-10">
             <p
-                class="text-xs font-black text-amber-600 uppercase tracking-widest mb-1 group-hover:text-amber-700 transition-colors">
-                Pending</p>
-            <p class="text-5xl font-black text-slate-900">{{ $countPending }}</p>
+                class="text-xs font-black text-red-600 uppercase tracking-widest mb-1 group-hover:text-red-700 transition-colors">
+                Overdue</p>
+            <p class="text-5xl font-black text-slate-900">{{ $countDelayed }}</p>
         </div>
         <div
-            class="absolute -right-6 -bottom-6 text-amber-500 opacity-10 group-hover:opacity-20 group-hover:scale-110 group-hover:rotate-12 transition-all duration-500 ease-out">
+            class="absolute -right-6 -bottom-6 text-red-500 opacity-10 group-hover:opacity-20 group-hover:scale-110 group-hover:rotate-12 transition-all duration-500 ease-out">
             <svg class="w-40 h-40" fill="currentColor" viewBox="0 0 24 24">
-                <path
-                    d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z" />
+                <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
             </svg>
         </div>
-        <div class="absolute bottom-0 left-0 w-0 h-1 bg-amber-500 group-hover:w-full transition-all duration-500">
+        <div class="absolute bottom-0 left-0 w-0 h-1 bg-red-500 group-hover:w-full transition-all duration-500">
         </div>
     </div>
 

@@ -16,7 +16,10 @@ export default defineConfig({
                 'resources/css/general-affair.css',
                 'resources/js/general-affair.js',
                 'resources/js/dashboard.js',
-                'resources/css/dashboard.css'
+                'resources/css/dashboard.css',
+                'resources/css/dhtmlx.css',
+                'resources/js/dhtmlx.js',
+                'resources/js/gantt-init.js'
             ],
             refresh: true,
         }),

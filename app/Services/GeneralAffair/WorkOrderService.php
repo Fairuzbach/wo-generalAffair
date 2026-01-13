@@ -62,7 +62,7 @@ class WorkOrderService
                 'ticket' => $wo,
                 'message' => $isAdminGA
                     ? 'Permintaan Berhasil Dibuat (Auto-Approved by GA).'
-                    : 'Permintaan Berhasil Dibuat! Silahkan hubungi SPV/Manager Dept Anda.'
+                    : 'Permintaan Berhasil Dibuat! Silahkan hubungi Manager Dept Anda untuk Approve tiket ini!.'
             ];
         });
     }
@@ -107,24 +107,45 @@ class WorkOrderService
         $this->logHistory($ticket->id, 'Status Update', 'Status diubah menjadi: ' . ucfirst($data['status']));
     }
 
-    public function processTicket($id, string $action, ?string $reason): string
+    public function processTicket($id, string $action, ?string $reason): array
     {
         $ticket = WorkOrderGeneralAffair::findOrFail($id);
         $user = Auth::user();
+
+        // 1. BERSIHKAN ROLE (Penting: Hapus spasi & lowercase)
+        $cleanRole = strtolower(trim($user->role));
+
+        // HAPUS DD DI SINI AGAR SCRIPT TIDAK MATI SEBELUM UPDATE
+
+        $alertData = null;
 
         if ($action == 'reject') {
             $newStatus = 'rejected';
             $desc = "Ditolak. Alasan: $reason";
         } else {
-            if ($user->role === 'ga.admin' || $user->role === 'admin_ga') {
-                $newStatus = 'approved';
-                $desc = "Tiket diterima oleh General Affair dan akan segera dikerjakan.";
+            // 2. LOGIKA ADMIN GA (Gunakan $cleanRole & in_array agar aman)
+            // Kita cek variasi penulisan role admin
+            $adminRoles = ['ga.admin', 'admin_ga', 'ga_admin'];
+
+            if (in_array($cleanRole, $adminRoles)) {
+                // --- AREA ADMIN GA ---
+                $newStatus = 'pending';
+                $desc = "Tiket diterima oleh General Affair dan masuk antrian pending.";
+
+                $alertData = [
+                    'type' => 'warning',
+                    'message' => 'Tiket berhasil disetujui (Status: Pending).',
+                    'instruction' => 'Harap segera kerjakan tiket yang baru anda Approve dan ubah status menjadi In Progress!'
+                ];
             } else {
+                // --- AREA ADMIN DIVISI LAIN ---
                 $newStatus = 'waiting_ga_approval';
                 $desc = "Disetujui oleh Admin Divisi ({$user->divisi}). Menunggu tindak lanjut General Affair.";
             }
         }
 
+        // 3. UPDATE DATABASE
+        // update() sekarang PASTI jalan karena dd() sudah dihapus
         $ticket->update([
             'status' => $newStatus,
             'rejection_reason' => ($action === 'reject') ? $reason : null,
@@ -134,7 +155,12 @@ class WorkOrderService
         ]);
 
         $this->logHistory($ticket->id, ucfirst($newStatus), $desc);
-        return ($action === 'approve' ? 'Disetujui' : 'Ditolak');
+
+        return [
+            'status' => 'success',
+            'message' => ($action === 'approve' ? 'Tiket Disetujui' : 'Tiket Ditolak'),
+            'alert' => $alertData
+        ];
     }
 
     public function getWorkOrders($request, $user)
@@ -145,7 +171,7 @@ class WorkOrderService
         $this->applyFilters($query, $request);
 
         $data = $query->with(['user', 'histories.user', 'plantInfo'])
-            ->orderBy('updated_at', 'desc')
+            ->orderBy('created_at', 'desc')
             ->paginate(10)
             ->withQueryString();
 
@@ -165,14 +191,30 @@ class WorkOrderService
         $query = WorkOrderGeneralAffair::query();
         $this->applyAccessControl($query, $user);
 
+        // Cloning query dasar agar filter user/role tetap berlaku
+        $baseQuery = clone $query;
+
+        // 1. Hitung Delayed (Logika: Belum Selesai DAN Target Date sudah lewat)
+        $countDelayed = (clone $baseQuery)
+            ->where('status', '!=', 'completed')
+            ->where('status', '!=', 'cancelled')
+            ->where('status', '!=', 'rejected')
+            ->whereNotNull('target_completion_date') // Pastikan ada target date
+            ->where('target_completion_date', '<', now()) // Tanggal target lebih kecil dari sekarang
+            ->count();
+
         return [
-            'countTotal' => (clone $query)->count(),
-            'countPending' => (clone $query)->where('status', 'pending')->count(),
-            'countWaitingApproval' => (clone $query)->where('status', 'waiting_approval')->count(),
-            'countInProgress' => (clone $query)->where('status', 'in_progress')->count(),
-            'countCompleted' => (clone $query)->where('status', 'completed')->count(),
+            'countTotal'           => (clone $baseQuery)->count(),
+            // Pending = Tiket yang sudah di-approve GA tapi belum dikerjakan
+            'countPending'         => (clone $baseQuery)->where('status', 'pending')->count(),
+            // Waiting Approval = Menunggu approval Dept Head/GA
+            'countWaitingApproval' => (clone $baseQuery)->whereIn('status', ['waiting_approval', 'waiting_ga_approval'])->count(),
+            'countInProgress'      => (clone $baseQuery)->where('status', 'in_progress')->count(),
+            'countCompleted'       => (clone $baseQuery)->where('status', 'completed')->count(),
+            'countDelayed'         => $countDelayed, // Tambahkan ini ke return
         ];
     }
+
 
     public function applyAccessControl(Builder $query, $user)
     {
@@ -189,7 +231,7 @@ class WorkOrderService
                     'completed',
                     'OPEN',
                     'waiting_ga_approval',
-                    'waiting_ga'
+                    'rejected'
                 ]);
 
                 // ATAU tiket yang TUJUANNYA ke departemen GA (walau status masih waiting_approval)
@@ -370,7 +412,7 @@ class WorkOrderService
         return [
             'eng.admin'       => ['Engineering', 'engineering', 'ENGINEERING', 'PE'],
             'fh.admin'        => ['Facility', 'FH', 'FACILITY'],
-            'mt.admin'        => ['Maintenance', 'maintenance', 'MT'],
+            'mt.admin'        => ['Maintenance', 'maintenance', 'MT', 'MAINTENANCE', 'mt'],
             'lv.admin'        => ['Low Voltage', 'LOW VOLTAGE', 'low voltage', 'LV', 'lv'],
             'mv.admin'        => ['Medium Voltage', 'medium voltage', 'MV', 'mv'],
             'qr.admin'        => ['QR', 'qr'],

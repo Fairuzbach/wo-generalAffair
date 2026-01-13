@@ -2,6 +2,8 @@
 
 namespace App\Services\GeneralAffair;
 
+use Illuminate\Support\Str;
+use Illuminate\Http\Request;
 use App\Models\GeneralAffair\WorkOrderGeneralAffair;
 use Carbon\Carbon;
 
@@ -18,19 +20,16 @@ class DashboardService
                 ->whereDate('created_at', '<=', $request->end_date);
         }
 
-        // Ambil semua data sekaligus (Eager Loading) agar hemat query
+        // Ambil data (Eager Load)
         $allTickets = $query->with(['user', 'plantInfo'])->orderBy('created_at', 'desc')->get();
 
-        // Clone query dasar untuk statistik counter global (jika diperlukan terpisah)
-        // Namun sebenarnya bisa hitung langsung dari collection $allTickets
-
-        // 2. Prepare Chart Data (Gantt Chart Timeline)
+        // 2. Prepare Chart Data (Gantt Chart)
         $chartData = $this->prepareGanttChart($allTickets);
 
-        // 3. Grouping Stats (Loc, Dept, Param, Bobot/Category)
+        // 3. Grouping Stats
         $groupedStats = $this->prepareGroupedStats($allTickets);
 
-        // 4. Performance Stats (Berdasarkan Target Date vs Bulan Filter)
+        // 4. Performance Stats
         $perfStats = $this->calculatePerformance($request->input('filter_month', date('Y-m')));
 
         return array_merge([
@@ -38,7 +37,7 @@ class DashboardService
             'countTotal'      => $allTickets->count(),
             'countInProgress' => $allTickets->where('status', 'in_progress')->count(),
             'countCompleted'  => $allTickets->where('status', 'completed')->count(),
-            // Pending dihitung terpisah karena tidak masuk filter status di atas
+            // Pending query terpisah karena statusnya beda dengan Base Query
             'countPending'    => WorkOrderGeneralAffair::whereIn('status', ['pending', 'waiting_ga_approval'])->count(),
             'filterMonth'     => $request->input('filter_month', date('Y-m')),
         ], $chartData, $groupedStats, $perfStats);
@@ -46,76 +45,108 @@ class DashboardService
 
     private function prepareGanttChart($tickets)
     {
-        // Logic sorting: Completed bawah, No Target tengah, Critical atas [cite: 67-68]
-        $sorted = $tickets->sortBy(function ($wo) {
-            if ($wo->status == 'completed') return 3;
-            if (!$wo->target_completion_date) return 2.5;
-            return Carbon::parse($wo->target_completion_date) < now() ? 1 : 2;
+        $data = [];
+        $links = [];
+
+        // REVISI: Jangan membuang tiket yang target date-nya NULL.
+        // Sebaiknya tetap ditampilkan dengan durasi default agar user sadar ada tiket tersebut.
+        $groupedByDivision = $tickets->groupBy(function ($ticket) {
+            return $ticket->department ?? $ticket->user->divisi ?? 'General';
         });
 
-        $labels = [];
-        $data = [];
-        $colors = [];
-        $metadata = [];
+        foreach ($groupedByDivision as $divisionName => $divisionTickets) {
+            // Create safe ID
+            $divisionId = 'div_' . preg_replace('/[^a-zA-Z0-9]/', '_', strtolower($divisionName));
 
-        foreach ($sorted as $wo) {
-            $labels[] = "[$wo->department] $wo->ticket_num";
-            $start = Carbon::parse($wo->created_at);
-            $hasTarget = !is_null($wo->target_completion_date);
-            $isOverdue = false;
+            // Parent (Division)
+            $data[] = [
+                'id' => $divisionId,
+                'text' => $divisionName,
+                'type' => 'project',
+                'open' => true,
+            ];
 
-            // Logic Warna & End Date [cite: 72-78]
-            if ($wo->status == 'completed') {
-                $end = $wo->actual_completion_date ? Carbon::parse($wo->actual_completion_date) : ($hasTarget ? Carbon::parse($wo->target_completion_date) : now());
-                $color = '#10b981'; // Hijau
-            } elseif ($hasTarget) {
-                $end = Carbon::parse($wo->target_completion_date);
-                $isOverdue = $end < now();
-                $color = $isOverdue ? '#ef4444' : '#3b82f6'; // Merah (Critical) / Biru
-            } else {
-                $end = now();
-                $color = '#3b82f6'; // Biru Default
+            foreach ($divisionTickets as $ticket) {
+                // Tentukan Warna & Progress
+                $color = '#3db9d3'; // Default: Biru
+                $progress = 0;
+
+                if ($ticket->status === 'completed') {
+                    $color = '#28a745'; // Hijau
+                    $progress = 1;
+                } elseif ($ticket->status === 'in_progress') {
+                    $color = '#ffc107'; // Kuning
+                    $progress = 0.4;
+                } elseif ($ticket->status === 'approved') {
+                    $color = '#17a2b8'; // Cyan
+                    $progress = 0.1;
+                }
+
+                // --- LOGIKA TANGGAL AMAN (FALLBACK) ---
+                // Start: Actual Start -> Created At -> Now
+                $start = $ticket->actual_start_date
+                    ? Carbon::parse($ticket->actual_start_date)
+                    : Carbon::parse($ticket->created_at);
+
+                // End: Actual End -> Target -> Start + 1 Hari
+                if ($ticket->actual_completion_date) {
+                    $end = Carbon::parse($ticket->actual_completion_date);
+                } elseif ($ticket->target_completion_date) {
+                    $end = Carbon::parse($ticket->target_completion_date);
+                } else {
+                    $end = $start->copy()->addDays(1); // Default 1 hari jika target null
+                }
+
+                // Pastikan durasi minimal 1 hari (dhtmlx tidak suka durasi 0 atau negatif)
+                $duration = $start->diffInDays($end);
+                if ($duration <= 0) $duration = 1;
+
+                // Child (Ticket)
+                $data[] = [
+                    'id' => $ticket->id,
+                    'text' => $ticket->ticket_num . ' - ' . Str::limit($ticket->description, 30),
+                    'start_date' => $start->format('Y-m-d'),
+                    'duration' => (int) $duration,
+                    'progress' => $progress,
+                    'parent' => $divisionId,
+                    'color' => $color,
+                    // Metadata untuk Tooltip
+                    'owner' => $ticket->user->name ?? 'N/A',
+                    'division' => $divisionName,
+                    'ticket_num' => $ticket->ticket_num,
+                    'status' => $ticket->status,
+                ];
             }
+        }
 
-            // Pastikan end date tidak sebelum start date
-            if ($end < $start) $end = $start;
-
-            $data[] = max(1, $start->diffInDays($end));
-            $colors[] = $color;
-
-            // Metadata lengkap untuk popup di View [cite: 83-85]
-            $metadata[] = [
-                'ticket_num'             => $wo->ticket_num,
-                'status'                 => $wo->status,
-                'status_type'            => $wo->status,
-                'has_target'             => $hasTarget,
-                'target_completion_date' => $wo->target_completion_date,
-                'actual_completion_date' => $wo->actual_completion_date,
-                'is_overdue'             => $isOverdue,
-                'department'             => $wo->department,
-                'created_at'             => $wo->created_at->format('Y-m-d'),
+        // Handle Empty Data
+        if (empty($data)) {
+            $data[] = [
+                'id' => 'div_empty',
+                'text' => 'Tidak ada data untuk ditampilkan',
+                'type' => 'project',
+                'open' => true,
             ];
         }
 
         return [
-            'chartDataDetail' => [
-                'labels' => $labels,
+            'tasks' => [
                 'data' => $data,
-                'colors' => $colors,
-                'metadata' => $metadata
+                'links' => $links
             ]
         ];
     }
 
+    // METHOD 'formatGanttData' DIHAPUS KARENA TIDAK DIGUNAKAN (DEAD CODE)
+
     private function prepareGroupedStats($tickets)
     {
-        // Helper function untuk format data tabel (Label + Total)
         $formatForTable = function ($grouped) {
             return $grouped->map(fn($list, $key) => (object)['label' => $key, 'total' => $list->count()])
                 ->sortByDesc('total')->values();
         };
 
-        // 1. Chart Phase (Beban Kerja per Dept) [cite: 86-90]
+        // 1. Chart Phase
         $deptGroup = $tickets->groupBy(fn($i) => $i->department ?? 'Unassigned');
         $chartDataPhase = [
             'labels' => $deptGroup->keys()->toArray(),
@@ -123,19 +154,18 @@ class DashboardService
             'colors' => array_fill(0, $deptGroup->count(), '#eab308')
         ];
 
-        // 2. Chart Lokasi (Plant) [cite: 91-92]
+        // 2. Lokasi
         $locGroup = $tickets->groupBy(fn($i) => $i->plantInfo->name ?? 'Unknown');
         $locData = $formatForTable($locGroup);
 
-        // 3. Chart Department (Tabel Statistik) [cite: 92]
-        // (Sama dengan Phase tapi format beda untuk view tabel)
+        // 3. Dept Table
         $deptData = $formatForTable($deptGroup);
 
-        // 4. Chart Parameter [cite: 93]
+        // 4. Parameter
         $paramGroup = $tickets->groupBy(fn($i) => $i->parameter_permintaan ?? 'Lainnya');
         $paramData = $formatForTable($paramGroup);
 
-        // 5. Chart Bobot (Category) [cite: 94-98]
+        // 5. Bobot
         $catGroup = $tickets->groupBy('category')->map->count();
         $chartBobotValues = [
             $catGroup['HIGH'] ?? $catGroup['BERAT'] ?? 0,
@@ -145,22 +175,15 @@ class DashboardService
 
         return [
             'chartDataPhase'   => $chartDataPhase,
-
-            // Data Tabel Lengkap (Object Collection)
             'locData'          => $locData,
             'deptData'         => $deptData,
             'paramData'        => $paramData,
-
-            // Data Array untuk Chart.js
             'chartLocLabels'   => $locData->pluck('label')->toArray(),
             'chartLocValues'   => $locData->pluck('total')->toArray(),
-
             'chartDeptLabels'  => $deptData->pluck('label')->toArray(),
             'chartDeptValues'  => $deptData->pluck('total')->toArray(),
-
             'chartParamLabels' => $paramData->pluck('label')->toArray(),
             'chartParamValues' => $paramData->pluck('total')->toArray(),
-
             'chartBobotLabels' => ['Berat (High)', 'Sedang (Medium)', 'Ringan (Low)'],
             'chartBobotValues' => $chartBobotValues,
         ];
@@ -168,10 +191,10 @@ class DashboardService
 
     private function calculatePerformance($filterMonth)
     {
-        // Logika Performa: Total tiket vs Completed pada bulan target tertentu [cite: 100-104]
         $year  = substr($filterMonth, 0, 4);
         $month = substr($filterMonth, 5, 2);
 
+        // Query terpisah diperlukan di sini karena filternya beda (Target Date vs Created Date)
         $query = WorkOrderGeneralAffair::whereIn('status', ['in_progress', 'completed', 'approved'])
             ->where(function ($q) use ($year, $month) {
                 $q->whereYear('target_completion_date', $year)

@@ -27,20 +27,16 @@ class GeneralAffairController extends Controller
 {
     // Constructor injection 
     public function __construct(
-        protected WorkOrderService $gaService, // PHP 8 Constructor Promotion (Otomatis define property)
+        protected WorkOrderService $gaService,
         protected DashboardService $dashboardService
     ) {}
-
-
 
     // =========================================================================
     // 1. HELPER & AJAX
     // =========================================================================
 
-    // API untuk mengambil data karyawan berdasarkan NIK saat input form
     public function checkEmployee(Request $request)
     {
-        // Cari user berdasarkan NIK
         $employee = \App\Models\User::where('nik', $request->nik)->first();
 
         if ($employee) {
@@ -48,15 +44,10 @@ class GeneralAffairController extends Controller
                 'status' => 'success',
                 'data' => [
                     'name' => $employee->name,
-
-                    // PERUBAHAN DI SINI:
-                    // Kiri ('department') adalah nama Kunci untuk JavaScript
-                    // Kanan ($employee->divisi) adalah nama Kolom di Database Anda
                     'department' => $employee->divisi
                 ]
             ], 200);
         } else {
-            // Return 200 dengan status error agar Console bersih
             return response()->json([
                 'status' => 'error',
                 'message' => 'NIK tidak ditemukan'
@@ -77,6 +68,7 @@ class GeneralAffairController extends Controller
 
         $stats = $this->gaService->getIndexStats(Auth::user());
 
+        // Filter plant agar list tidak terlalu panjang (Sesuai kode asli Anda)
         $plants = Plant::whereNotIn('name', ['QC', 'FO', 'PE', 'QR', 'SS', 'MT', 'FH', 'RM', 'Plant F'])->get();
         $pageIds = $workOrders->pluck('id')->toArray();
 
@@ -93,7 +85,6 @@ class GeneralAffairController extends Controller
     public function dashboard(Request $request)
     {
         $data = $this->dashboardService->getDashboardData($request);
-
         return view('Division.GeneralAffair.Dashboard', $data);
     }
 
@@ -104,8 +95,6 @@ class GeneralAffairController extends Controller
     public function store(StoreWorkOrderRequest $request): RedirectResponse
     {
         try {
-            // Kita panggil service. 
-            // $request->validated() otomatis hanya mengambil data yg lolos rules()
             $result = $this->gaService->createWorkOrder(
                 $request->validated(),
                 $request->file('photo')
@@ -113,7 +102,6 @@ class GeneralAffairController extends Controller
 
             return redirect()->back()->with('success', $result['message']);
         } catch (\Exception $e) {
-            // Logging error standar Laravel 11
             \Log::error('Gagal Store GA: ' . $e->getMessage());
             return redirect()->back()->with('error', 'Gagal menyimpan: ' . $e->getMessage());
         }
@@ -122,23 +110,13 @@ class GeneralAffairController extends Controller
     public function getDepartmentsByPlant($plant_id)
     {
         try {
-            // 1. Cari Data Plant
             $plant = Plant::find($plant_id);
+            if (!$plant) return response()->json([]);
 
-            // Jika plant tidak ditemukan, kembalikan array kosong (jangan error)
-            if (!$plant) {
-                return response()->json([]);
-            }
-
-            // 2. Bersihkan nama plant (hapus spasi depan/belakang)
             $name = trim($plant->name);
-
-            // 3. Tentukan Departemen Spesifik (Berdasarkan Logic JS Anda sebelumnya)
             $specificDept = '';
 
-            // Logic Mapping (Switch Case)
             switch ($name) {
-                // Group Low Voltage
                 case 'Plant A':
                 case 'Plant C':
                 case 'Plant F':
@@ -146,20 +124,14 @@ class GeneralAffairController extends Controller
                 case 'Autowire':
                     $specificDept = 'Low Voltage';
                     break;
-
-                // Group Medium Voltage
                 case 'Plant B':
                 case 'Plant D':
                     $specificDept = 'Medium Voltage';
                     break;
-
-                // Group Fiber Optic
                 case 'Plant E':
                 case 'FO':
                     $specificDept = 'FO';
                     break;
-
-                // Group Support Components (SC) / RM
                 case 'RM 1':
                 case 'RM 2':
                 case 'RM 3':
@@ -167,8 +139,6 @@ class GeneralAffairController extends Controller
                 case 'RM Office':
                     $specificDept = 'SC';
                     break;
-
-                // Group Quality (QR)
                 case 'QC FO':
                 case 'QC LAB':
                 case 'QC LV':
@@ -176,8 +146,6 @@ class GeneralAffairController extends Controller
                 case 'QR':
                     $specificDept = 'QR';
                     break;
-
-                // Group Lainnya
                 case 'Konstruksi':
                     $specificDept = 'FH';
                     break;
@@ -217,18 +185,13 @@ class GeneralAffairController extends Controller
                 case 'Sales 2':
                     $specificDept = 'Sales 2';
                     break;
-
                 default:
-                    $specificDept = 'General'; // Default jika nama plant tidak dikenali
+                    $specificDept = 'General';
                     break;
             }
 
-            // 4. Buat Daftar Akhir Departemen
-            // Kita gabungkan departemen spesifik tadi dengan departemen umum (GA, IT, dll)
-            // agar user tetap punya pilihan departemen pendukung.
-
             $departments = [
-                $specificDept, // Dept Utama (Hasil mapping di atas)
+                $specificDept,
                 'FA',
                 'FH',
                 'FO',
@@ -248,51 +211,53 @@ class GeneralAffairController extends Controller
                 'SS',
             ];
 
-            // Hapus duplikat (misal specificDept = 'GA', maka 'GA' jangan muncul 2x)
-            $departments = array_unique($departments);
-
-            // Re-index array supaya rapi di JSON (0, 1, 2...)
-            $departments = array_values($departments);
-
-            return response()->json($departments);
+            return response()->json(array_values(array_unique($departments)));
         } catch (\Exception $e) {
-            // Log error untuk developer (cek di storage/logs/laravel.log)
             \Log::error('Error getDepartmentsByPlant: ' . $e->getMessage());
-
-            // Return array kosong atau pesan error format JSON (jangan 500 crash)
             return response()->json(['General'], 200);
         }
     }
 
+    // --- UTAMA: ACTION APPROVE/REJECT OLEH ADMIN GA ---
     public function processTicket(ProcessTicketRequest $request, $id)
     {
         try {
-            $statusMsg = $this->gaService->processTicket(
+            // Panggil Service (Return berupa Array sekarang)
+            $result = $this->gaService->processTicket(
                 $id,
                 $request->action,
                 $request->reason
             );
-            return redirect()->back()->with('success', "Tiket berhasil $statusMsg.");
+
+            // 1. Siapkan Redirect dengan pesan Sukses
+            $redirect = redirect()->back()->with('success', $result['message']);
+
+            // 2. Cek apakah ada request untuk menampilkan Alert Peringatan
+            // (Ini yang memicu popup "Segera Kerjakan" di view)
+            if (!empty($result['alert'])) {
+                $redirect->with('alert-action', $result['alert']);
+            }
+
+            return $redirect;
         } catch (\Exception $e) {
-            return redirect()->back()->with('error', 'Gagal memproses tiket: ', $e->getMessage());
+            return redirect()->back()->with('error', 'Gagal memproses tiket: ' . $e->getMessage());
         }
     }
 
-
-
+    // --- ACTION APPROVE OLEH ADMIN DIVISI LAIN (TECHNICAL) ---
     public function approveByTechnical(Request $request, $id)
     {
-        // Mapping: Jika request lama kirim 'decline', kita anggap 'reject'. Sisanya 'approve'.
         $action = ($request->action === 'decline') ? 'reject' : 'approve';
 
         try {
-            // Panggil Service processTicket yang baru
-            $statusMsg = $this->gaService->processTicket(
+            $result = $this->gaService->processTicket(
                 $id,
                 $action,
                 $request->reason
             );
-            return redirect()->back()->with('success', "Tiket berhasil diproses ($statusMsg).");
+
+            // Kita ambil message dari array result
+            return redirect()->back()->with('success', $result['message']);
         } catch (\Exception $e) {
             return redirect()->back()->with('error', 'Gagal: ' . $e->getMessage());
         }
@@ -322,9 +287,7 @@ class GeneralAffairController extends Controller
         $user = Auth::user();
         $query = WorkOrderGeneralAffair::query();
 
-        // =================================================================
-        // 1. LOGIKA HAK AKSES (SAMA PERSIS DENGAN INDEX)
-        // =================================================================
+        // LOGIKA HAK AKSES (Access Control)
         $roleMap = [
             'eng.admin' => ['Engineering', 'engineering', 'ENGINEERING', 'PE'],
             'fh.admin'  => ['Facility', 'FH', 'FACILITY'],
@@ -338,51 +301,36 @@ class GeneralAffairController extends Controller
             'fa.admin'  => ['FA', 'fa'],
             'it.admin'  => ['IT', 'it'],
             'hc.admin'  => ['HC', 'hc'],
-            'sales1.admin'     => ['Sales 1', 'sales 1'],
-            'sales2.admin'     => ['Sales 2', 'sales 2'],
+            'sales1.admin' => ['Sales 1', 'sales 1'],
+            'sales2.admin' => ['Sales 2', 'sales 2'],
             'marketing.admin' => ['Marketing', 'marketing'],
         ];
 
         if ($user) {
-            // A. GA ADMIN (Logika Khusus GA)
             if ($user->role === User::ROLE_GA_ADMIN || $user->role === 'admin_ga') {
                 $query->where(function ($q) {
-                    // Tampilkan tiket yang sudah diproses
                     $q->whereIn('status', ['pending', 'approved', 'in_progress', 'completed', 'OPEN']);
-
-                    // Tampilkan tiket Waiting Approval HANYA jika tujuannya ke GA
                     $q->orWhere(function ($sub) {
                         $sub->where('status', 'waiting_approval')
                             ->whereIn('department', ['GA', 'General Affair']);
                     });
                 });
-            }
-            // B. ADMIN TEKNIS
-            elseif (array_key_exists($user->role, $roleMap)) {
+            } elseif (array_key_exists($user->role, $roleMap)) {
                 $allowedDepts = $roleMap[$user->role];
                 $query->where(function ($q) use ($user, $allowedDepts) {
                     $q->whereIn('department', $allowedDepts)
                         ->orWhere('requester_id', $user->id);
                 });
-            }
-            // C. USER BIASA
-            else {
+            } else {
                 $query->where('requester_id', $user->id);
             }
         }
 
-        // =================================================================
-        // 2. LOGIKA FILTER & PENCARIAN (SAMA PERSIS DENGAN INDEX)
-        // =================================================================
-
-        // A. Handle Checklist (Jika user mencentang beberapa baris saja)
+        // LOGIKA FILTER
         if ($request->filled('selected_ids')) {
             $ids = explode(',', $request->selected_ids);
             $query->whereIn('id', $ids);
-        }
-        // B. Jika tidak ada checklist, gunakan filter global
-        else {
-            // Search
+        } else {
             $query->when($request->search, function ($q) use ($request) {
                 $q->where(function ($sub) use ($request) {
                     $sub->where('ticket_num', 'LIKE', "%{$request->search}%")
@@ -391,25 +339,19 @@ class GeneralAffairController extends Controller
                 });
             });
 
-            // Filter Dropdown
             $query->when($request->status && $request->status !== 'all', fn($q) => $q->where('status', $request->status));
             $query->when($request->category && $request->category !== 'all', fn($q) => $q->where('category', $request->category));
             $query->when($request->parameter && $request->parameter !== 'all', fn($q) => $q->where('parameter_permintaan', $request->parameter));
             $query->when($request->plant_id && $request->plant_id !== 'all', fn($q) => $q->where('plant', $request->plant_id));
 
-            // Filter Tanggal
             if ($request->filled('start_date') && $request->filled('end_date')) {
                 $query->whereDate('created_at', '>=', $request->start_date)
                     ->whereDate('created_at', '<=', $request->end_date);
             }
         }
 
-        // =================================================================
-        // 3. SORTING & EKSEKUSI
-        // =================================================================
         $query->orderBy('created_at', 'desc');
 
-        // Kirim Query Builder ke Export Class (bukan ->get() agar hemat memori)
         return Excel::download(new WorkOrderExport($query), 'Laporan-GA-' . date('d-m-Y-H-i') . '.xlsx');
     }
 }

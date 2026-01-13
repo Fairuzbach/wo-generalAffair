@@ -100,4 +100,5 @@
 
         </div> {{-- End max-w container --}}
     </div> {{-- AKHIR DIV x-data="gaData" --}}
+
 </x-app-layout>

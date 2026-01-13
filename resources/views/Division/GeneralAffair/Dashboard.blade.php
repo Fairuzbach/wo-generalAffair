@@ -42,7 +42,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
     {{-- LOAD RESOURCES --}}
-    @vite(['resources/css/dashboard.css', 'resources/js/dashboard.js'])
+    @vite(['resources/css/dashboard.css', 'resources/js/dashboard.js', 'resources/css/dhtmlx.css', 'resources/js/dhtmlx.js', 'resources/js/gantt-init.js', 'resources/css/gantt-tooltip-fix.css', 'resources/css/gantt.css'])
 
     {{-- DATA INJECTION (PHP ke JS Global) --}}
     {{-- Ini digunakan oleh file index.js untuk chart statistik lainnya (Pie, Bar Chart Dept, dll) --}}
@@ -76,15 +76,17 @@
                 defaultStartDateHeader: "{{ $workOrders->min('created_at')?->translatedFormat('d F Y') ?? date('d F Y') }}"
             }
         };
-    </script>
+        window.gaGanttData = @json($tasks ?? ['data' => [], 'links' => []]);
 
+        console.log('Gantt Data Loaded:', window.gaGanttData);
+    </script>
     {{-- KONTEN UTAMA --}}
     <div class="py-12 bg-slate-50">
 
         <div id="dashboard-content" class="max-w-8xl mx-auto sm:px-6 lg:px-8 p-4 bg-slate-50">
 
             {{-- 1. STATISTIK CARDS --}}
-            <x-dashboard.stats-card :countTotal="$countTotal" :countPending="$countPending" :countInProgress="$countInProgress" :countCompleted="$countCompleted" />
+            <x-dashboard.stats-card :countTotal="$countTotal" :countDelayed="$countPending" :countInProgress="$countInProgress" :countCompleted="$countCompleted" />
 
             {{-- 2. GRID GRAFIK --}}
             <x-dashboard.graph-grid :filterMonth="$filterMonth" :perfPercentage="$perfPercentage" :perfTotal="$perfTotal" :perfCompleted="$perfCompleted" />
@@ -96,7 +98,7 @@
 
             {{-- 4. GANTT CHART  --}}
 
-            <x-dashboard.gantt-chart :chartDataDetail="$chartDataDetail" :chartDataPhase="$chartDataPhase" />
+            <x-dashboard.gantt-chart :tasks="$tasks" />
 
         </div>
     </div>
