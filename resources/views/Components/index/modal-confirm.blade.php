@@ -60,7 +60,7 @@
 
                     <div class="space-y-3 text-sm">
                         <div class="flex justify-between border-b border-slate-200 pb-2">
-                            <span class="text-slate-500">Departemen Tujuan</span>
+                            <span class="text-slate-500">Departemen Pelapor</span>
                             <span class="font-bold text-slate-800" x-text="data.department || '-'"></span>
                         </div>
                         <div class="flex justify-between border-b border-slate-200 pb-2">

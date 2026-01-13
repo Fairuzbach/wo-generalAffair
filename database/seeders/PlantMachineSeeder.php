@@ -334,7 +334,8 @@ class PlantMachineSeeder extends Seeder
             'Workshop Electric' => [],
             'Konstruksi' => [],
             'Gudang Jadi' => [],
-            'QR' => []
+            'QR' => [],
+            'Plant Tools' => []
         ];
 
         DB::beginTransaction();

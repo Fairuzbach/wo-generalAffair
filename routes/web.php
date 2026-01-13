@@ -51,13 +51,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // -----------------------------------------------------------------
 
     // Jalur 1: Admin Teknis (MT/FH/ENG)
-    Route::post('/wo/approve-technical/{id}', [GeneralAffairController::class, 'approveByTechnical'])
-        ->name('wo.approve_technical');
+    Route::match(['get', 'post'], '/wo/approve-technical/{id}', [GeneralAffairController::class, 'approveByTechnical'])->name('wo.approve_technical');
 
     // Jalur 2: Admin GA
     Route::post('/wo/approve-ga/{id}', [GeneralAffairController::class, 'approveByGA'])
         ->name('wo.approve_ga');
-    Route::put('/work-order-ga/{id}/process', [GeneralAffairController::class, 'processTicket'])
+    Route::put('/ga/process/{id}', [GeneralAffairController::class, 'processTicket'])
         ->name('work-order-ga.process');
 
     // -----------------------------------------------------------------
@@ -75,7 +74,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/ga/export', [GeneralAffairController::class, 'export'])->name('ga.export');
 
         // Update Status & PIC
-        Route::put('/ga/{id}/update-status', [GeneralAffairController::class, 'updateStatus'])->name('ga.update_status');
+        Route::put('/ga/update-status/{id}', [GeneralAffairController::class, 'updateStatus'])->name('ga.update_status');
+
+        Route::get('/get-departments/{plant_id}', [GeneralAffairController::class, 'getDepartmentsByPlant'])
+            ->name('get.departments');
 
         // Reject oleh GA
         Route::post('/ga/reject/{id}', [GeneralAffairController::class, 'reject'])->name('ga.reject');
@@ -93,6 +95,7 @@ Route::middleware('auth')->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+    Route::put('/password', [ProfileController::class, 'updatePassword'])->name('password.update');
 });
 
 require __DIR__ . '/auth.php';

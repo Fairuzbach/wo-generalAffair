@@ -39,7 +39,9 @@ class User extends Authenticatable
         'email',
         'password',
         'role',     // Menyimpan salah satu konstanta di atas
+        'is_active',
         'divisi',   // Menyimpan departemen user (e.g., 'Engineering', 'Maintenance')
+        'jabatan',
     ];
 
     /**
@@ -60,6 +62,7 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
+        'is_active' => 'boolean'
     ];
 
     // =========================================================================
